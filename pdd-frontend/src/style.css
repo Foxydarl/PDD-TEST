@@ -1,0 +1,53 @@
+﻿@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&family=Fira+Code:wght@400;500&display=swap');
+
+:root {
+  --text-main: #132833;
+  --bg-main: #eef8fa;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Manrope', sans-serif;
+  color: var(--text-main);
+  background: var(--bg-main);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: 'Playfair Display', serif;
+  letter-spacing: 0.01em;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+#app {
+  animation: appFadeIn 0.45s ease-out;
+}
+
+@keyframes appFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
