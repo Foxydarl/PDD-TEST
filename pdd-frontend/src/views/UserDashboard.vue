@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed, onMounted, ref } from 'vue'
 import { updateProfileName } from '../api/auth'
 import {
@@ -379,27 +379,31 @@ onMounted(async () => {
   border-radius: 14px;
   padding: 11px 14px;
   font-weight: 700;
+  border: 1px solid transparent;
 }
 
 .flash.success {
   background: #dff7e7;
+  border-color: #bfe8cb;
   color: #0d6735;
 }
 
 .flash.error {
   background: #ffe3e3;
+  border-color: #f2c3c9;
   color: #9f1f2d;
 }
 
 .profile-panel {
-  border: 1px solid #dbe8eb;
-  border-radius: 16px;
+  border: 1px solid #d5e7eb;
+  border-radius: 18px;
   padding: 14px;
-  background: #ffffffde;
+  background: rgba(255, 255, 255, 0.84);
   display: flex;
   justify-content: space-between;
   gap: 12px;
   align-items: center;
+  box-shadow: 0 10px 24px rgba(12, 42, 51, 0.08);
 }
 
 .profile-panel h3 {
@@ -426,14 +430,15 @@ onMounted(async () => {
 .eyebrow {
   margin: 0;
   text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 0.78rem;
+  letter-spacing: 0.15em;
+  font-size: 0.76rem;
   color: #0e7a85;
+  font-weight: 800;
 }
 
 h2 {
   margin: 6px 0;
-  font-size: clamp(1.3rem, 2.2vw, 2rem);
+  font-size: clamp(1.35rem, 2.3vw, 2.15rem);
 }
 
 .subtext {
@@ -446,16 +451,27 @@ h2 {
 .question-card,
 .progress-box,
 .analytics-card {
-  background: #ffffffde;
-  border: 1px solid #dbe8eb;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid #d4e6ea;
   border-radius: 20px;
   padding: 18px;
+  box-shadow: 0 12px 28px rgba(11, 44, 53, 0.08);
 }
 
 .tests-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 14px;
+}
+
+.test-card {
+  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+
+.test-card:hover {
+  transform: translateY(-2px);
+  border-color: #b9d7dd;
+  box-shadow: 0 18px 28px rgba(13, 53, 62, 0.12);
 }
 
 .test-top {
@@ -475,7 +491,7 @@ h2 {
 
 .test-card h3 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1.07rem;
 }
 
 .test-card p {
@@ -491,14 +507,21 @@ h2 {
   margin-bottom: 12px;
 }
 
+.meta-grid div {
+  border: 1px solid #dbe8eb;
+  border-radius: 11px;
+  padding: 8px;
+  background: #f8fcfd;
+}
+
 .meta-grid span {
   display: block;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   color: #4f6b75;
 }
 
 .meta-grid strong {
-  font-size: 1.1rem;
+  font-size: 1.08rem;
 }
 
 .analytics-kpi {
@@ -510,8 +533,9 @@ h2 {
 
 .analytics-kpi div {
   border: 1px solid #dce7ea;
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 8px;
+  background: #f8fcfd;
 }
 
 .analytics-kpi span {
@@ -533,6 +557,7 @@ h2 {
   display: flex;
   justify-content: space-between;
   gap: 8px;
+  background: #fcffff;
 }
 
 .history-item p {
@@ -545,11 +570,15 @@ h2 {
   align-items: flex-end;
 }
 
+.progress-box {
+  border-radius: 18px;
+}
+
 .progress-text {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-weight: 600;
+  font-weight: 700;
   color: #274955;
 }
 
@@ -564,24 +593,31 @@ h2 {
 .progress-fill {
   height: 100%;
   background: linear-gradient(135deg, #0b7480, #0a9c75);
+  box-shadow: 0 0 18px rgba(12, 156, 117, 0.35);
+}
+
+.question-card {
+  border-radius: 22px;
 }
 
 .question-category {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.84rem;
   color: #477884;
-  font-weight: 700;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .question-card h3 {
   margin: 8px 0 14px;
-  font-size: 1.2rem;
+  font-size: 1.24rem;
   line-height: 1.35;
 }
 
 .question-image {
   width: 100%;
-  max-height: 280px;
+  max-height: 300px;
   object-fit: contain;
   border: 1px solid #dae8eb;
   border-radius: 12px;
@@ -597,16 +633,22 @@ h2 {
 .answer-btn {
   border: 1px solid #d4e7ea;
   background: #f7fcfd;
-  border-radius: 12px;
+  border-radius: 13px;
   padding: 11px 12px;
   text-align: left;
   cursor: pointer;
   font: inherit;
 }
 
+.answer-btn:hover {
+  border-color: #92c6ce;
+  transform: translateY(-1px);
+}
+
 .answer-btn.selected {
   border-color: #0d7f8b;
   background: linear-gradient(140deg, #d6f7fa, #eefefd);
+  box-shadow: 0 10px 20px rgba(13, 127, 139, 0.18);
 }
 
 .runner-actions {
@@ -628,11 +670,20 @@ h2 {
 .primary-btn {
   background: linear-gradient(135deg, #047857, #0f9a73);
   color: white;
+  box-shadow: 0 10px 22px rgba(4, 120, 87, 0.24);
+}
+
+.primary-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
 }
 
 .secondary-btn {
   background: #ecf8f9;
   color: #10515d;
+}
+
+.secondary-btn:hover:not(:disabled) {
+  background: #def0f3;
 }
 
 .primary-btn:disabled,
@@ -644,10 +695,11 @@ h2 {
 .result-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(9, 24, 27, 0.42);
+  background: rgba(9, 24, 27, 0.48);
   display: grid;
   place-items: center;
   z-index: 40;
+  backdrop-filter: blur(2px);
 }
 
 .result-modal {
@@ -655,8 +707,10 @@ h2 {
   max-height: calc(100vh - 40px);
   overflow: auto;
   background: white;
-  border-radius: 18px;
+  border-radius: 20px;
   padding: 22px;
+  border: 1px solid #d8e8eb;
+  box-shadow: 0 20px 38px rgba(8, 31, 39, 0.25);
 }
 
 .result-modal h3 {
@@ -672,7 +726,7 @@ h2 {
 }
 
 .score {
-  font-size: 2.2rem;
+  font-size: 2.25rem;
   margin: 10px 0;
   font-weight: 800;
 }
@@ -682,6 +736,7 @@ h2 {
   border-radius: 12px;
   padding: 12px;
   margin: 12px 0;
+  background: #f9fcfd;
 }
 
 .wrong-item {
@@ -689,6 +744,7 @@ h2 {
   border-radius: 10px;
   padding: 8px;
   margin-bottom: 8px;
+  background: white;
 }
 
 .wrong-item p {
@@ -716,3 +772,4 @@ h2 {
   }
 }
 </style>
+

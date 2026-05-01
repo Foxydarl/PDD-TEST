@@ -415,6 +415,56 @@ def _aggregate_attempts(rows: List[sqlite3.Row]) -> Dict[str, Any]:
     }
 
 
+def _build_attempt_questions_review(cursor, question_ids: List[int], answer_map: Dict[int, int]) -> List[dict]:
+    questions = _fetch_questions_by_ids(
+        cursor,
+        question_ids,
+        include_correct=True,
+        randomize_answers=False,
+    )
+
+    review_items: List[dict] = []
+    for question in questions:
+        question_id = int(question["id"])
+        selected_answer_id = answer_map.get(question_id)
+
+        selected_answer = None
+        correct_answer = None
+        answers_payload = []
+        for answer in question["answers"]:
+            is_selected = selected_answer_id is not None and int(answer["id"]) == int(selected_answer_id)
+            answer_payload = {
+                "id": answer["id"],
+                "answer_text": answer["answer_text"],
+                "is_correct": bool(answer.get("is_correct", False)),
+                "is_selected": is_selected,
+                "explanation": answer.get("explanation") or "",
+            }
+            answers_payload.append(answer_payload)
+
+            if answer_payload["is_selected"]:
+                selected_answer = answer_payload
+            if answer_payload["is_correct"]:
+                correct_answer = answer_payload
+
+        review_items.append(
+            {
+                "question_id": question_id,
+                "question_text": question["question_text"],
+                "category": question["category"],
+                "image_url": question.get("image_url"),
+                "selected_answer_id": selected_answer_id,
+                "selected_answer_text": selected_answer["answer_text"] if selected_answer else "Не выбран",
+                "correct_answer_id": correct_answer["id"] if correct_answer else None,
+                "correct_answer_text": correct_answer["answer_text"] if correct_answer else "",
+                "is_correct": bool(selected_answer and selected_answer.get("is_correct")),
+                "answers": answers_payload,
+            }
+        )
+
+    return review_items
+
+
 def _initialize_admin_schema():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -1264,6 +1314,78 @@ async def admin_user_analytics(
     payload = _aggregate_attempts(rows)
     conn.close()
     return payload
+
+
+@router.get("/admin/attempts/{attempt_id}")
+async def admin_attempt_details(
+    attempt_id: int,
+    x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token"),
+):
+    require_admin(x_admin_token)
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT
+            ta.*,
+            t.title AS test_title
+        FROM test_attempts ta
+        LEFT JOIN admin_tests t ON t.id = ta.test_id
+        WHERE ta.id = ?
+        LIMIT 1
+        """,
+        (attempt_id,),
+    )
+    row = cur.fetchone()
+
+    if row is None:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Attempt not found")
+
+    raw_question_ids = _safe_json_load(row["question_ids_snapshot"], [])
+    question_ids = _dedupe_int_list(raw_question_ids if isinstance(raw_question_ids, list) else [])
+
+    raw_answer_map = _safe_json_load(row["answers_snapshot"], {})
+    answer_map: Dict[int, int] = {}
+    if isinstance(raw_answer_map, dict):
+        answer_map = _normalize_answer_map(raw_answer_map)
+
+    if not question_ids:
+        question_ids = list(answer_map.keys())
+
+    review_questions = _build_attempt_questions_review(cur, question_ids, answer_map)
+    wrong_questions = _safe_json_load(row["wrong_questions"], [])
+    recommendations = _safe_json_load(row["recommendations"], [])
+    category_stats = _safe_json_load(row["category_stats"], [])
+
+    conn.close()
+
+    return {
+        "attempt": {
+            "attempt_id": row["id"],
+            "assignment_id": row["assignment_id"],
+            "test_id": row["test_id"],
+            "test_title": row["test_title"],
+            "user_id": row["user_id"],
+            "user_email": row["user_email"],
+            "mode": row["mode"],
+            "attempt_number": row["attempt_number"],
+            "total_questions": row["total_questions"],
+            "correct_answers": row["correct_answers"],
+            "wrong_answers": row["wrong_answers"],
+            "score": row["score"],
+            "pass_score": row["pass_score"],
+            "passed": bool(row["passed"]),
+            "duration_seconds": row["duration_seconds"],
+            "created_at": row["created_at"],
+            "category_stats": category_stats,
+            "wrong_questions": wrong_questions,
+            "recommendations": recommendations,
+            "questions": review_questions,
+        }
+    }
 
 
 @router.get("/my/tests/{user_id}")

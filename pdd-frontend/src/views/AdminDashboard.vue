@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import {
   assignTestToUser,
@@ -6,6 +6,7 @@ import {
   createAdminTest,
   deleteAdminQuestion,
   fetchAdminAssignments,
+  fetchAdminAttemptDetails,
   fetchAdminCategories,
   fetchAdminQuestions,
   fetchAdminTestDetails,
@@ -43,6 +44,8 @@ let searchTimer = null
 const selectedUserAnalytics = ref(null)
 const selectedUserAnalyticsData = ref(null)
 const analyticsLoading = ref(false)
+const attemptDetailsLoading = ref(false)
+const selectedAttempt = ref(null)
 
 const assignConfigByUser = ref({})
 const assigningUserId = ref('')
@@ -202,23 +205,55 @@ async function loadUsers() {
 async function loadAllData() {
   loading.value = true
   try {
-    const [testsData, usersData, assignmentsData, questionsData, categoriesData] = await Promise.all([
-      fetchAdminTests(token.value),
-      fetchAdminUsers(token.value, userSearch.value),
-      fetchAdminAssignments(token.value),
-      fetchAdminQuestions(token.value, { include_answers: true }),
-      fetchAdminCategories(token.value)
-    ])
+    const [testsResult, usersResult, assignmentsResult, questionsResult, categoriesResult] =
+      await Promise.allSettled([
+        fetchAdminTests(token.value),
+        fetchAdminUsers(token.value, userSearch.value),
+        fetchAdminAssignments(token.value),
+        fetchAdminQuestions(token.value, { include_answers: true }),
+        fetchAdminCategories(token.value)
+      ])
 
-    tests.value = testsData
-    users.value = usersData
-    assignments.value = assignmentsData
-    questions.value = questionsData
-    categories.value = categoriesData
+    const errors = []
+
+    if (testsResult.status === 'fulfilled') {
+      tests.value = testsResult.value
+    } else {
+      errors.push(`Тесты: ${getErrorText(testsResult.reason)}`)
+    }
+
+    if (usersResult.status === 'fulfilled') {
+      users.value = usersResult.value
+    } else {
+      errors.push(`Пользователи: ${getErrorText(usersResult.reason)}`)
+    }
+
+    if (assignmentsResult.status === 'fulfilled') {
+      assignments.value = assignmentsResult.value
+    } else {
+      errors.push(`Назначения: ${getErrorText(assignmentsResult.reason)}`)
+    }
+
+    if (questionsResult.status === 'fulfilled') {
+      questions.value = questionsResult.value
+    } else {
+      errors.push(`Вопросы: ${getErrorText(questionsResult.reason)}`)
+    }
+
+    if (categoriesResult.status === 'fulfilled') {
+      categories.value = categoriesResult.value
+    } else {
+      errors.push(`Категории: ${getErrorText(categoriesResult.reason)}`)
+    }
 
     users.value.forEach((user) => ensureAssignConfig(user.id))
-  } catch (error) {
-    showFlash('error', getErrorText(error))
+
+    if (errors.length) {
+      showFlash(
+        'error',
+        `${errors.join(' | ')}. Проверь, что запущен актуальный backend (sqlite_query_service) для этой версии фронтенда.`
+      )
+    }
   } finally {
     loading.value = false
   }
@@ -416,6 +451,27 @@ async function openUserAnalytics(user) {
   }
 }
 
+async function openAttemptDetails(attempt) {
+  if (!attempt?.has_review_details) {
+    showFlash('error', 'Подробный разбор попытки недоступен на текущем backend')
+    return
+  }
+
+  attemptDetailsLoading.value = true
+  selectedAttempt.value = null
+  try {
+    selectedAttempt.value = await fetchAdminAttemptDetails(token.value, attempt.attempt_id)
+  } catch (error) {
+    showFlash('error', getErrorText(error))
+  } finally {
+    attemptDetailsLoading.value = false
+  }
+}
+
+function closeAttemptDetails() {
+  selectedAttempt.value = null
+}
+
 watch(userSearch, () => {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(async () => {
@@ -554,6 +610,17 @@ onMounted(async () => {
                 <div class="attempt-score">
                   <span>{{ attempt.score }}%</span>
                   <small>{{ attempt.created_at }}</small>
+                </div>
+                <div class="attempt-actions">
+                  <button
+                    v-if="attempt.has_review_details"
+                    class="ghost-btn"
+                    :disabled="attemptDetailsLoading"
+                    @click="openAttemptDetails(attempt)"
+                  >
+                    {{ attemptDetailsLoading ? 'Загрузка...' : 'Разбор' }}
+                  </button>
+                  <button v-else class="ghost-btn" disabled>Нет разбора</button>
                 </div>
               </div>
             </div>
@@ -716,7 +783,7 @@ onMounted(async () => {
               <div>
                 <strong>#{{ question.id }} · {{ question.category }}</strong>
                 <p>{{ question.question_text }}</p>
-                <small>{{ question.answers?.length || 0 }} вариантов ответа</small>
+                <small>{{ question.answers?.length || question.answers_count || 0 }} вариантов ответа</small>
               </div>
               <div class="inline-actions">
                 <button class="ghost-btn" @click="editQuestion(question)">Изменить</button>
@@ -727,6 +794,53 @@ onMounted(async () => {
         </article>
       </div>
     </section>
+
+    <div v-if="selectedAttempt" class="review-overlay" @click.self="closeAttemptDetails">
+      <div class="review-modal">
+        <div class="review-head">
+          <div>
+            <h3>{{ selectedAttempt.test_title || `Тест #${selectedAttempt.test_id}` }}</h3>
+            <p>
+              {{ selectedAttempt.mode === 'training' ? 'Обучение' : 'Экзамен' }}
+              · попытка {{ selectedAttempt.attempt_number }}
+              · результат {{ selectedAttempt.score }}%
+            </p>
+          </div>
+          <button class="ghost-btn" @click="closeAttemptDetails">Закрыть</button>
+        </div>
+
+        <div class="review-summary">
+          <div>
+            <span>Правильных</span>
+            <strong>{{ selectedAttempt.correct_answers }} / {{ selectedAttempt.total_questions }}</strong>
+          </div>
+          <div>
+            <span>Ошибок</span>
+            <strong>{{ selectedAttempt.wrong_answers }}</strong>
+          </div>
+          <div>
+            <span>Проходной балл</span>
+            <strong>{{ selectedAttempt.pass_score }}%</strong>
+          </div>
+        </div>
+
+        <div class="review-list">
+          <article
+            v-for="item in selectedAttempt.questions"
+            :key="item.question_id"
+            class="review-item"
+            :class="{ correct: item.is_correct, wrong: !item.is_correct }"
+          >
+            <p class="review-category">{{ item.category }}</p>
+            <h4>#{{ item.question_id }} · {{ item.question_text }}</h4>
+            <p><strong>Ответ пользователя:</strong> {{ item.selected_answer_text }}</p>
+            <p><strong>Правильный ответ:</strong> {{ item.correct_answer_text }}</p>
+            <p v-if="!item.is_correct" class="review-status">Ошибка</p>
+            <p v-else class="review-status success">Верно</p>
+          </article>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -734,7 +848,7 @@ onMounted(async () => {
 .admin-root {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
 .page-head {
@@ -742,33 +856,44 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid #d7e7eb;
+  border-radius: 22px;
+  padding: 16px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 12px 28px rgba(11, 50, 63, 0.08);
 }
 
 .page-head h2 {
   margin: 6px 0 0;
+  font-size: clamp(1.45rem, 2.2vw, 2.2rem);
 }
 
 .eyebrow {
   margin: 0;
   text-transform: uppercase;
-  letter-spacing: 0.15em;
-  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  font-size: 0.76rem;
   color: #0f6c78;
+  font-weight: 800;
 }
 
 .flash {
-  border-radius: 12px;
-  padding: 10px 14px;
+  border-radius: 14px;
+  padding: 11px 14px;
   font-weight: 700;
+  border: 1px solid transparent;
 }
 
 .flash.success {
-  background: #dff7e7;
+  background: #def7e9;
+  border-color: #bfe8cb;
   color: #0d6735;
 }
 
 .flash.error {
   background: #ffe3e3;
+  border-color: #f2c3c9;
   color: #9f1f2d;
 }
 
@@ -776,6 +901,11 @@ onMounted(async () => {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  padding: 6px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid #d5e5e9;
+  width: fit-content;
 }
 
 .tabs button {
@@ -783,22 +913,27 @@ onMounted(async () => {
   border-radius: 12px;
   padding: 9px 14px;
   cursor: pointer;
-  background: #eaf5f7;
+  background: transparent;
   color: #1e4752;
   font-weight: 700;
+}
+
+.tabs button:hover {
+  background: #eff7f9;
 }
 
 .tabs button.active {
   background: linear-gradient(135deg, #0b7581, #0a9d75);
   color: #f2fffc;
+  box-shadow: 0 8px 18px rgba(11, 117, 129, 0.24);
 }
 
 .panel {
-  background: #ffffffd9;
-  border: 1px solid #d7e6e8;
-  border-radius: 20px;
-  padding: 18px;
-  box-shadow: 0 8px 20px rgba(16, 24, 40, 0.06);
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid #d2e4e8;
+  border-radius: 24px;
+  padding: 20px;
+  box-shadow: 0 16px 34px rgba(14, 38, 45, 0.08);
 }
 
 .panel-head {
@@ -832,10 +967,11 @@ onMounted(async () => {
 .editor-card,
 .sub-card,
 .tests-list-card {
-  border: 1px solid #dce8ea;
-  border-radius: 16px;
-  padding: 14px;
-  background: #fcffff;
+  border: 1px solid #d7e7eb;
+  border-radius: 18px;
+  padding: 15px;
+  background: linear-gradient(180deg, #fbffff, #f8fcfd);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .tests-list-card {
@@ -850,17 +986,25 @@ onMounted(async () => {
 }
 
 .editor-card label span {
-  font-weight: 600;
+  font-weight: 700;
   color: #1a3c47;
 }
 
 input,
 textarea,
 select {
-  border: 1px solid #c9dce0;
-  border-radius: 10px;
+  border: 1px solid #c8dde2;
+  border-radius: 11px;
   padding: 9px 10px;
   font: inherit;
+  background: #fcffff;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  border-color: #0b7f8c;
+  box-shadow: 0 0 0 3px rgba(11, 127, 140, 0.12);
 }
 
 .inline-fields {
@@ -888,17 +1032,18 @@ select {
 }
 
 .question-list {
-  max-height: 360px;
+  max-height: 380px;
   overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding-right: 2px;
 }
 
 .question-chip {
-  border: 1px solid #d3e7ea;
-  border-radius: 12px;
-  background: #f6fcfd;
+  border: 1px solid #d1e5e9;
+  border-radius: 13px;
+  background: #f5fbfc;
   text-align: left;
   padding: 9px;
   display: grid;
@@ -907,14 +1052,23 @@ select {
   cursor: pointer;
 }
 
+.question-chip:hover {
+  border-color: #93c5cd;
+  transform: translateY(-1px);
+}
+
 .question-chip.selected {
   border-color: #117b88;
-  background: #def6f8;
+  background: linear-gradient(135deg, #def6f8, #f0fffd);
+  box-shadow: 0 10px 20px rgba(17, 123, 136, 0.15);
 }
 
 .users-table-wrap {
   margin-top: 12px;
   overflow: auto;
+  border: 1px solid #d9e8eb;
+  border-radius: 14px;
+  background: white;
 }
 
 table {
@@ -924,15 +1078,21 @@ table {
 
 th,
 td {
-  border-bottom: 1px solid #ddeaec;
+  border-bottom: 1px solid #e2edf0;
   text-align: left;
-  padding: 10px 8px;
+  padding: 11px 9px;
   vertical-align: middle;
+}
+
+tbody tr:hover {
+  background: #f7fcfd;
 }
 
 th {
   font-size: 0.82rem;
   color: #35535f;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
 }
 
 .mono {
@@ -954,11 +1114,12 @@ th {
 .test-item,
 .question-item {
   border: 1px solid #dce9ec;
-  border-radius: 12px;
+  border-radius: 13px;
   padding: 10px;
   display: flex;
   justify-content: space-between;
   gap: 10px;
+  background: #fcffff;
 }
 
 .assignment-item p,
@@ -975,6 +1136,11 @@ th {
   align-items: flex-end;
 }
 
+.attempt-actions {
+  display: flex;
+  align-items: center;
+}
+
 .analytics-head {
   display: flex;
   flex-direction: column;
@@ -989,9 +1155,10 @@ th {
 }
 
 .analytics-kpi div {
-  border: 1px solid #dce7ea;
-  border-radius: 10px;
-  padding: 8px;
+  border: 1px solid #d5e6ea;
+  border-radius: 12px;
+  padding: 9px;
+  background: #f8fcfd;
 }
 
 .analytics-kpi span {
@@ -1028,8 +1195,8 @@ th {
 .ghost-btn,
 .danger-btn {
   border: none;
-  border-radius: 10px;
-  padding: 8px 12px;
+  border-radius: 11px;
+  padding: 9px 13px;
   font: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -1038,6 +1205,11 @@ th {
 .solid-btn {
   background: linear-gradient(135deg, #0b7581, #0a9d75);
   color: #f2fffc;
+  box-shadow: 0 10px 20px rgba(11, 117, 129, 0.24);
+}
+
+.solid-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
 }
 
 .ghost-btn {
@@ -1045,16 +1217,131 @@ th {
   color: #1e4954;
 }
 
+.ghost-btn:hover:not(:disabled) {
+  background: #dff0f3;
+}
+
 .danger-btn {
-  background: #ffdfe3;
+  background: #ffe1e5;
   color: #8f2130;
+}
+
+.danger-btn:hover:not(:disabled) {
+  background: #ffd2d8;
 }
 
 .solid-btn:disabled,
 .ghost-btn:disabled,
 .danger-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.62;
   cursor: not-allowed;
+}
+
+.review-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 26, 33, 0.5);
+  display: grid;
+  place-items: center;
+  z-index: 60;
+  backdrop-filter: blur(2px);
+}
+
+.review-modal {
+  width: min(920px, calc(100vw - 30px));
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  background: white;
+  border: 1px solid #d9e9ec;
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 24px 44px rgba(5, 31, 39, 0.28);
+}
+
+.review-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.review-head h3 {
+  margin: 0;
+}
+
+.review-head p {
+  margin: 6px 0 0;
+  color: #476775;
+}
+
+.review-summary {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.review-summary div {
+  border: 1px solid #d5e6ea;
+  border-radius: 12px;
+  padding: 8px;
+  background: #f8fcfd;
+}
+
+.review-summary span {
+  display: block;
+  color: #466672;
+  font-size: 0.8rem;
+}
+
+.review-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.review-item {
+  border: 1px solid #dde9ec;
+  border-radius: 12px;
+  padding: 10px;
+  background: #fcffff;
+}
+
+.review-item.correct {
+  border-color: #bee4cb;
+  background: #f3fcf6;
+}
+
+.review-item.wrong {
+  border-color: #f0c7cd;
+  background: #fff7f8;
+}
+
+.review-category {
+  margin: 0;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #557784;
+  font-weight: 700;
+}
+
+.review-item h4 {
+  margin: 6px 0;
+}
+
+.review-item p {
+  margin: 4px 0;
+}
+
+.review-status {
+  font-weight: 700;
+  color: #9f2632;
+}
+
+.review-status.success {
+  color: #11683a;
 }
 
 @media (max-width: 1100px) {
@@ -1065,6 +1352,11 @@ th {
 }
 
 @media (max-width: 740px) {
+  .panel {
+    padding: 14px;
+    border-radius: 18px;
+  }
+
   .panel-head {
     flex-direction: column;
     align-items: stretch;
@@ -1083,5 +1375,10 @@ th {
   .inline-actions {
     flex-wrap: wrap;
   }
+
+  .review-summary {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
+

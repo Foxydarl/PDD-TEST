@@ -1,7 +1,7 @@
 ﻿<script setup>
 import { computed, onMounted, ref } from 'vue'
 import { login, register } from './api/auth'
-import { adminLogin } from './api/pdd'
+import { API_BASE, adminLogin } from './api/pdd'
 import { pb } from './lib/pocketbase'
 import AdminDashboard from './views/AdminDashboard.vue'
 import UserDashboard from './views/UserDashboard.vue'
@@ -57,6 +57,14 @@ function extractErrorMessage(error, fallback) {
   )
 }
 
+function getBaseOrigin(url) {
+  try {
+    return new URL(url).origin
+  } catch (error) {
+    return url
+  }
+}
+
 async function handleAuth() {
   authError.value = ''
   loading.value = true
@@ -90,6 +98,11 @@ async function handleAuth() {
       password.value = ''
       return
     } catch (adminError) {
+      const adminStatus = adminError?.response?.status
+      if (![401, 403].includes(adminStatus)) {
+        throw new Error(`Админ API недоступен. Проверь backend: ${getBaseOrigin(API_BASE)}`)
+      }
+
       await login(email.value.trim(), password.value)
       session.value = createUserSession()
       name.value = ''
@@ -199,72 +212,86 @@ onMounted(() => {
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(circle at 15% 15%, rgba(16, 159, 170, 0.24), transparent 35%),
-    radial-gradient(circle at 85% 10%, rgba(17, 120, 91, 0.22), transparent 32%),
-    radial-gradient(circle at 75% 80%, rgba(12, 110, 121, 0.18), transparent 42%),
-    linear-gradient(130deg, #f2f9fb 0%, #e8f3f4 45%, #edf9f5 100%);
+    radial-gradient(circle at 14% 16%, rgba(11, 126, 139, 0.24), transparent 32%),
+    radial-gradient(circle at 83% 10%, rgba(12, 160, 132, 0.2), transparent 34%),
+    radial-gradient(circle at 78% 84%, rgba(30, 113, 129, 0.16), transparent 40%),
+    linear-gradient(132deg, #f4fbfd 0%, #e8f3f5 50%, #edf8f5 100%);
+  z-index: -2;
+}
+
+.root-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.45) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.45) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.42), transparent 88%);
   z-index: -1;
 }
 
 .auth-layout {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 1fr 440px;
-  gap: 22px;
+  grid-template-columns: 1fr 450px;
+  gap: 24px;
   align-items: center;
-  max-width: 1120px;
+  max-width: 1140px;
   margin: 0 auto;
-  padding: 28px;
+  padding: 30px;
 }
 
 .auth-side {
-  background: linear-gradient(145deg, rgba(4, 73, 83, 0.93), rgba(4, 99, 82, 0.9));
-  color: #ecfffd;
-  border-radius: 28px;
-  padding: 34px;
-  box-shadow: 0 14px 40px rgba(2, 34, 40, 0.22);
+  background: linear-gradient(145deg, rgba(5, 67, 76, 0.96), rgba(8, 111, 93, 0.9));
+  color: #effffd;
+  border-radius: 30px;
+  padding: 38px;
+  box-shadow: var(--shadow-strong);
+  border: 1px solid rgba(207, 241, 245, 0.24);
 }
 
 .eyebrow {
   margin: 0;
   text-transform: uppercase;
-  letter-spacing: 0.16em;
-  font-size: 0.78rem;
+  letter-spacing: 0.17em;
+  font-size: 0.76rem;
   font-weight: 800;
 }
 
 .auth-side h1 {
-  margin: 12px 0;
-  font-size: clamp(2rem, 4vw, 3rem);
-  line-height: 1.1;
+  margin: 14px 0;
+  font-size: clamp(2.1rem, 4.2vw, 3.1rem);
+  line-height: 1.08;
 }
 
 .auth-side p {
   margin: 0;
-  color: #d6f7f6;
-  font-size: 1rem;
+  color: #d6f7f3;
+  font-size: 1.03rem;
   max-width: 560px;
+  line-height: 1.45;
 }
 
 .auth-side ul {
-  margin: 20px 0 0;
+  margin: 22px 0 0;
   padding-left: 18px;
   display: grid;
-  gap: 8px;
+  gap: 9px;
 }
 
 .auth-card {
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid #dce9ec;
-  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid #d6e7ea;
+  border-radius: 26px;
   padding: 24px;
-  backdrop-filter: blur(10px);
-  box-shadow: 0 8px 28px rgba(20, 30, 43, 0.1);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-soft);
 }
 
 .auth-switch {
-  background: #edf6f7;
-  border-radius: 12px;
+  background: #e8f2f4;
+  border-radius: 14px;
   padding: 4px;
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -274,23 +301,23 @@ onMounted(() => {
 .auth-switch button {
   border: none;
   background: transparent;
-  padding: 8px 10px;
-  border-radius: 9px;
+  padding: 9px 10px;
+  border-radius: 10px;
   font: inherit;
   font-weight: 700;
-  color: #33535b;
+  color: #365762;
   cursor: pointer;
 }
 
 .auth-switch button.active {
   background: white;
-  color: #0f4954;
-  box-shadow: 0 4px 8px rgba(8, 45, 58, 0.08);
+  color: #0e4d59;
+  box-shadow: 0 6px 14px rgba(6, 51, 63, 0.08);
 }
 
 .auth-card h2 {
   margin: 18px 0;
-  font-size: 1.35rem;
+  font-size: 1.4rem;
 }
 
 .auth-card label {
@@ -301,17 +328,24 @@ onMounted(() => {
 }
 
 .auth-card label span {
-  font-size: 0.86rem;
-  font-weight: 700;
-  color: #2a4a52;
+  font-size: 0.84rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #2f5159;
+  text-transform: uppercase;
 }
 
 .auth-card input {
-  border: 1px solid #cbdde2;
-  border-radius: 12px;
+  border: 1px solid #c8dce1;
+  border-radius: 13px;
   padding: 11px 12px;
   font: inherit;
   background: #fcfeff;
+}
+
+.auth-card input:focus-visible {
+  border-color: #0b7f8c;
+  box-shadow: 0 0 0 3px rgba(11, 127, 140, 0.14);
 }
 
 .auth-error {
@@ -324,7 +358,7 @@ onMounted(() => {
 .logout-btn {
   margin-top: 16px;
   border: none;
-  border-radius: 12px;
+  border-radius: 13px;
   padding: 11px 14px;
   font: inherit;
   font-weight: 800;
@@ -333,8 +367,14 @@ onMounted(() => {
 
 .auth-submit {
   width: 100%;
-  background: linear-gradient(135deg, #0b7480, #0a9c75);
+  background: linear-gradient(135deg, #0a7480, #0d9f77);
   color: #f5fffe;
+  box-shadow: 0 10px 18px rgba(11, 116, 128, 0.22);
+}
+
+.auth-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 26px rgba(11, 116, 128, 0.28);
 }
 
 .auth-submit:disabled {
@@ -345,25 +385,26 @@ onMounted(() => {
 .app-shell {
   min-height: 100vh;
   padding: 24px;
-  max-width: 1240px;
+  max-width: 1260px;
   margin: 0 auto;
 }
 
 .shell-header {
-  background: rgba(255, 255, 255, 0.83);
-  border: 1px solid #d9e7e9;
-  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid #d6e8eb;
+  border-radius: 22px;
   padding: 16px 18px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 14px;
   backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-soft);
 }
 
 .shell-header h1 {
   margin: 6px 0 0;
-  font-size: clamp(1.3rem, 2.1vw, 2rem);
+  font-size: clamp(1.35rem, 2.2vw, 2.05rem);
 }
 
 .shell-user {
@@ -380,8 +421,12 @@ onMounted(() => {
 
 .logout-btn {
   margin-top: 0;
-  background: #e8f6f7;
+  background: #e7f4f6;
   color: #0d4f5d;
+}
+
+.logout-btn:hover {
+  transform: translateY(-1px);
 }
 
 .shell-content {
@@ -405,5 +450,12 @@ onMounted(() => {
     flex-direction: column;
     align-items: flex-start;
   }
+
+  .auth-side,
+  .auth-card {
+    border-radius: 20px;
+    padding: 20px;
+  }
 }
 </style>
+

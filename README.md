@@ -1,11 +1,11 @@
-# PDD Testing Platform (Vue + FastAPI + PocketBase)
+﻿# PDD Testing Platform (Vue + FastAPI + PocketBase)
 
 Полная инструкция по запуску проекта на Windows: что установить, как запустить сервисы и что делать при типичных ошибках.
 
 ## Что внутри проекта
 
 - `pdd-frontend` - фронтенд на Vue 3 + Vite.
-- `backend/sqlite_query_service` - основной FastAPI API для тестов ПДД (порт `8080`).
+- `backend/sqlite_query_service` - основной FastAPI API для тестов ПДД (порт `8082`).
 - `backend/ai_service` - FastAPI сервис генерации SQL-вопросов (порт `8081`).
 - `backend/backend_service` - PocketBase (порт `8090`).
 - `data` - скрипты и датасеты для подготовки базы вопросов.
@@ -47,7 +47,7 @@ start.bat
 
 Скрипт откроет 4 окна:
 
-1. `sqlite_query_service` (`http://localhost:8080`)
+1. `sqlite_query_service` (`http://localhost:8082`)
 2. `ai_service` (`http://localhost:8081`)
 3. `pocketbase` (`http://127.0.0.1:8090`)
 4. `vite frontend` (обычно `http://localhost:5173`)
@@ -89,7 +89,7 @@ npm run dev
 ## Полезные адреса после запуска
 
 - Frontend: `http://localhost:5173`
-- API docs (PDD backend): `http://localhost:8080/docs`
+- API docs (PDD backend): `http://localhost:8082/docs`
 - API docs (AI backend): `http://localhost:8081/docs`
 - PocketBase Admin UI: `http://127.0.0.1:8090/_/`
 
@@ -125,7 +125,7 @@ import HomePage from './views/HomePage.vue'
 </template>
 ```
 
-## Основные PDD API-эндпоинты (`8080`)
+## Основные PDD API-эндпоинты (`8082`)
 
 - `GET /api/pdd/categories` - список категорий
 - `GET /api/pdd/questions/{category}?limit=20` - вопросы по категории
@@ -147,7 +147,7 @@ import HomePage from './views/HomePage.vue'
    - создайте `pdd-frontend/src/lib/pocketbase.js` (см. выше), либо временно переключите `App.vue` на `HomePage.vue`.
 
 3. Frontend не может получить данные:
-   - проверьте, что `backend/sqlite_query_service` запущен на `8080`.
+   - проверьте, что `backend/sqlite_query_service` запущен на `8082`.
 
 4. Ошибка AI генерации:
    - проверьте наличие файла модели `ggml-gpt4all-j-v1.3-groovy.bin` в `backend/ai_service/utils`.
@@ -189,3 +189,4 @@ This project now starts PDD API on `8082` via `start.bat`.
 
 - PDD API: `http://localhost:8082`
 - Admin login endpoint: `POST http://localhost:8082/api/pdd/admin/login`
+
