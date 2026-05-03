@@ -11,6 +11,9 @@ const messages = {
     'language.ru': 'Русский',
     'language.en': 'English',
     'language.kk': 'Қазақша',
+    'contentLanguage.ru': 'Русский',
+    'contentLanguage.en': 'Английский',
+    'contentLanguage.kk': 'Казахский',
 
     'common.save': 'Сохранить',
     'common.update': 'Обновить',
@@ -68,6 +71,7 @@ const messages = {
     'user.tests.refresh': 'Обновить',
     'user.tests.noDescription': 'Без описания',
     'user.tests.questions': 'Вопросов',
+    'user.tests.language': 'Язык',
     'user.tests.attempts': 'Попыток',
     'user.tests.lastScore': 'Последний результат',
     'user.tests.start': 'Начать тест',
@@ -77,6 +81,7 @@ const messages = {
     'user.training.general.title': 'Подготовка по общей базе',
     'user.training.general.subtitle': 'Запусти отдельную тренировку по всем вопросам ПДД без назначения от администратора.',
     'user.training.general.questionsCount': 'Сколько вопросов',
+    'user.training.general.language': 'Язык вопросов',
     'user.training.general.categories': 'Категории',
     'user.training.general.allCategories': 'Все категории',
     'user.training.general.pickCategories': 'Выбери одну или несколько категорий',
@@ -99,6 +104,7 @@ const messages = {
 
     'user.runner.trainingMode': 'Training Mode',
     'user.runner.examMode': 'Exam Mode',
+    'user.runner.testLanguage': 'Язык экзамена: {language}',
     'user.runner.passScore': 'Проходной балл: {score}%',
     'user.runner.questionProgress': 'Вопрос {current} из {total}',
     'user.runner.answerProgress': 'Отвечено {answered} / {total} ({progress}%)',
@@ -159,6 +165,8 @@ const messages = {
     'admin.tests.description': 'Описание',
     'admin.tests.descriptionPlaceholder': 'Коротко опиши цель теста',
     'admin.tests.limit': 'Лимит вопросов',
+    'admin.tests.language': 'Язык экзамена',
+    'admin.tests.languageHint': 'В тест можно добавлять только вопросы выбранного языка.',
     'admin.tests.passScore': 'Проходной балл (%)',
     'admin.tests.randomQuestions': 'Рандомизировать порядок вопросов',
     'admin.tests.randomAnswers': 'Рандомизировать варианты ответов',
@@ -181,6 +189,7 @@ const messages = {
     'admin.questions.textPlaceholder': 'Введите вопрос',
     'admin.questions.category': 'Категория',
     'admin.questions.categoryPlaceholder': 'Например: дорожные знаки',
+    'admin.questions.language': 'Язык вопроса',
     'admin.questions.image': 'Ссылка на изображение (опционально)',
     'admin.questions.imagePlaceholder': 'https://...',
     'admin.questions.answerPlaceholder': 'Вариант ответа',
@@ -217,13 +226,17 @@ const messages = {
     'admin.flash.selectTestBeforeAssign': 'Выбери тест перед назначением',
     'admin.flash.testAssigned': 'Тест назначен пользователю {email}',
     'admin.flash.noAttemptDetails': 'Подробный разбор попытки недоступен на текущем backend',
-    'admin.flash.backendHint': '{errors}. Проверь, что запущен актуальный backend (sqlite_query_service) для этой версии фронтенда.'
+    'admin.flash.backendHint': '{errors}. Проверь, что запущен актуальный backend (sqlite_query_service) для этой версии фронтенда.',
+    'admin.filters.allLanguages': 'Все языки'
   },
 
   en: {
     'language.ru': 'Russian',
     'language.en': 'English',
     'language.kk': 'Kazakh',
+    'contentLanguage.ru': 'Russian',
+    'contentLanguage.en': 'English',
+    'contentLanguage.kk': 'Kazakh',
 
     'common.save': 'Save',
     'common.update': 'Refresh',
@@ -281,6 +294,7 @@ const messages = {
     'user.tests.refresh': 'Refresh',
     'user.tests.noDescription': 'No description',
     'user.tests.questions': 'Questions',
+    'user.tests.language': 'Language',
     'user.tests.attempts': 'Attempts',
     'user.tests.lastScore': 'Last score',
     'user.tests.start': 'Start test',
@@ -290,6 +304,7 @@ const messages = {
     'user.training.general.title': 'Practice from full question bank',
     'user.training.general.subtitle': 'Start a separate training session from all PDD questions without admin assignment.',
     'user.training.general.questionsCount': 'Number of questions',
+    'user.training.general.language': 'Question language',
     'user.training.general.categories': 'Categories',
     'user.training.general.allCategories': 'All categories',
     'user.training.general.pickCategories': 'Select one or several categories',
@@ -312,6 +327,7 @@ const messages = {
 
     'user.runner.trainingMode': 'Training Mode',
     'user.runner.examMode': 'Exam Mode',
+    'user.runner.testLanguage': 'Exam language: {language}',
     'user.runner.passScore': 'Pass score: {score}%',
     'user.runner.questionProgress': 'Question {current} of {total}',
     'user.runner.answerProgress': 'Answered {answered} / {total} ({progress}%)',
@@ -372,6 +388,8 @@ const messages = {
     'admin.tests.description': 'Description',
     'admin.tests.descriptionPlaceholder': 'Briefly describe test purpose',
     'admin.tests.limit': 'Question limit',
+    'admin.tests.language': 'Exam language',
+    'admin.tests.languageHint': 'Only questions in selected language can be added to this test.',
     'admin.tests.passScore': 'Pass score (%)',
     'admin.tests.randomQuestions': 'Randomize question order',
     'admin.tests.randomAnswers': 'Randomize answer options',
@@ -394,6 +412,7 @@ const messages = {
     'admin.questions.textPlaceholder': 'Enter question',
     'admin.questions.category': 'Category',
     'admin.questions.categoryPlaceholder': 'For example: road signs',
+    'admin.questions.language': 'Question language',
     'admin.questions.image': 'Image URL (optional)',
     'admin.questions.imagePlaceholder': 'https://...',
     'admin.questions.answerPlaceholder': 'Answer option',
@@ -430,13 +449,17 @@ const messages = {
     'admin.flash.selectTestBeforeAssign': 'Select a test before assignment',
     'admin.flash.testAssigned': 'Test assigned to user {email}',
     'admin.flash.noAttemptDetails': 'Detailed review is unavailable on current backend',
-    'admin.flash.backendHint': '{errors}. Make sure the current backend (sqlite_query_service) for this frontend version is running.'
+    'admin.flash.backendHint': '{errors}. Make sure the current backend (sqlite_query_service) for this frontend version is running.',
+    'admin.filters.allLanguages': 'All languages'
   },
 
   kk: {
     'language.ru': 'Орысша',
     'language.en': 'Ағылшынша',
     'language.kk': 'Қазақша',
+    'contentLanguage.ru': 'Орысша',
+    'contentLanguage.en': 'Ағылшынша',
+    'contentLanguage.kk': 'Қазақша',
 
     'common.save': 'Сақтау',
     'common.update': 'Жаңарту',
@@ -494,6 +517,7 @@ const messages = {
     'user.tests.refresh': 'Жаңарту',
     'user.tests.noDescription': 'Сипаттамасы жоқ',
     'user.tests.questions': 'Сұрақтар',
+    'user.tests.language': 'Тіл',
     'user.tests.attempts': 'Әрекеттер',
     'user.tests.lastScore': 'Соңғы нәтиже',
     'user.tests.start': 'Тестті бастау',
@@ -503,6 +527,7 @@ const messages = {
     'user.training.general.title': 'Жалпы база бойынша дайындық',
     'user.training.general.subtitle': 'Әкімші тағайындауынсыз ПДД сұрақтарының толық базасынан жеке дайындық режимін баста.',
     'user.training.general.questionsCount': 'Сұрақ саны',
+    'user.training.general.language': 'Сұрақ тілі',
     'user.training.general.categories': 'Санаттар',
     'user.training.general.allCategories': 'Барлық санаттар',
     'user.training.general.pickCategories': 'Бір немесе бірнеше санатты таңда',
@@ -525,6 +550,7 @@ const messages = {
 
     'user.runner.trainingMode': 'Training Mode',
     'user.runner.examMode': 'Exam Mode',
+    'user.runner.testLanguage': 'Емтихан тілі: {language}',
     'user.runner.passScore': 'Өту балы: {score}%',
     'user.runner.questionProgress': '{total} ішінен {current} сұрақ',
     'user.runner.answerProgress': 'Жауап берілгені {answered} / {total} ({progress}%)',
@@ -585,6 +611,8 @@ const messages = {
     'admin.tests.description': 'Сипаттама',
     'admin.tests.descriptionPlaceholder': 'Тест мақсатын қысқаша сипатта',
     'admin.tests.limit': 'Сұрақ лимиті',
+    'admin.tests.language': 'Емтихан тілі',
+    'admin.tests.languageHint': 'Бұл тестке тек таңдалған тілдегі сұрақтарды қосуға болады.',
     'admin.tests.passScore': 'Өту балы (%)',
     'admin.tests.randomQuestions': 'Сұрақ ретін араластыру',
     'admin.tests.randomAnswers': 'Жауап нұсқаларын араластыру',
@@ -607,6 +635,7 @@ const messages = {
     'admin.questions.textPlaceholder': 'Сұрақты енгіз',
     'admin.questions.category': 'Санат',
     'admin.questions.categoryPlaceholder': 'Мысалы: жол белгілері',
+    'admin.questions.language': 'Сұрақ тілі',
     'admin.questions.image': 'Сурет сілтемесі (міндетті емес)',
     'admin.questions.imagePlaceholder': 'https://...',
     'admin.questions.answerPlaceholder': 'Жауап нұсқасы',
@@ -643,7 +672,8 @@ const messages = {
     'admin.flash.selectTestBeforeAssign': 'Тағайындамас бұрын тест таңда',
     'admin.flash.testAssigned': '{email} пайдаланушысына тест тағайындалды',
     'admin.flash.noAttemptDetails': 'Осы backend нұсқасында егжей-тегжейлі талдау қолжетімсіз',
-    'admin.flash.backendHint': '{errors}. Осы frontend нұсқасына сәйкес backend (sqlite_query_service) іске қосылғанын тексер.'
+    'admin.flash.backendHint': '{errors}. Осы frontend нұсқасына сәйкес backend (sqlite_query_service) іске қосылғанын тексер.',
+    'admin.filters.allLanguages': 'Барлық тіл'
   }
 }
 

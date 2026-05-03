@@ -59,13 +59,17 @@ const selectedAttempt = ref(null)
 const assignConfigByUser = ref({})
 const assigningUserId = ref('')
 
+const CONTENT_LANGUAGES = ['ru', 'en', 'kk']
+
 const testFilterQuery = ref('')
 const testFilterCategory = ref('all')
+const testFilterLanguage = ref('all')
 
 const testEditor = ref({
   id: null,
   title: '',
   description: '',
+  language: 'ru',
   question_limit: 20,
   randomize_questions: true,
   randomize_answers: false,
@@ -75,11 +79,13 @@ const testEditor = ref({
 
 const questionFilterQuery = ref('')
 const questionFilterCategory = ref('all')
+const questionFilterLanguage = ref('all')
 
 const questionEditor = ref({
   id: null,
   question_text: '',
   category: '',
+  language: 'ru',
   image_url: '',
   answers: [
     { answer_text: '', is_correct: true, explanation: '' },
@@ -106,11 +112,17 @@ function modeLabel(mode) {
   return mode === 'training' ? props.t('mode.training') : props.t('mode.exam')
 }
 
+function contentLanguageLabel(language) {
+  const normalized = (language || 'ru').toString().toLowerCase()
+  return props.t(`contentLanguage.${normalized}`)
+}
+
 function resetTestEditor() {
   testEditor.value = {
     id: null,
     title: '',
     description: '',
+    language: 'ru',
     question_limit: 20,
     randomize_questions: true,
     randomize_answers: false,
@@ -124,6 +136,7 @@ function resetQuestionEditor() {
     id: null,
     question_text: '',
     category: '',
+    language: 'ru',
     image_url: '',
     answers: [
       { answer_text: '', is_correct: true, explanation: '' },
@@ -147,29 +160,41 @@ const availableCategories = computed(() => {
   return Array.from(set).filter(Boolean)
 })
 
+const contentLanguageOptions = computed(() =>
+  CONTENT_LANGUAGES.map((value) => ({
+    value,
+    label: contentLanguageLabel(value)
+  }))
+)
+
 const filteredQuestionsForTest = computed(() => {
   const q = testFilterQuery.value.trim().toLowerCase()
   return questions.value.filter((question) => {
+    const matchesTestLanguage = (question.language || 'ru') === testEditor.value.language
+    const languageOk =
+      testFilterLanguage.value === 'all' || (question.language || 'ru') === testFilterLanguage.value
     const categoryOk =
       testFilterCategory.value === 'all' || question.category === testFilterCategory.value
     const queryOk =
       q.length === 0 ||
       question.question_text.toLowerCase().includes(q) ||
       String(question.id).includes(q)
-    return categoryOk && queryOk
+    return matchesTestLanguage && languageOk && categoryOk && queryOk
   })
 })
 
 const filteredQuestionsForBank = computed(() => {
   const q = questionFilterQuery.value.trim().toLowerCase()
   return questions.value.filter((question) => {
+    const languageOk =
+      questionFilterLanguage.value === 'all' || (question.language || 'ru') === questionFilterLanguage.value
     const categoryOk =
       questionFilterCategory.value === 'all' || question.category === questionFilterCategory.value
     const queryOk =
       q.length === 0 ||
       question.question_text.toLowerCase().includes(q) ||
       String(question.id).includes(q)
-    return categoryOk && queryOk
+    return languageOk && categoryOk && queryOk
   })
 })
 
@@ -276,6 +301,7 @@ async function openTestForEdit(testId) {
       id: test.id,
       title: test.title,
       description: test.description || '',
+      language: test.language || 'ru',
       question_limit: test.question_limit,
       randomize_questions: test.randomize_questions,
       randomize_answers: test.randomize_answers,
@@ -305,6 +331,7 @@ async function saveTest() {
     const payload = {
       title: testEditor.value.title.trim(),
       description: testEditor.value.description.trim(),
+      language: testEditor.value.language,
       question_ids: testEditor.value.question_ids,
       question_limit: Number(testEditor.value.question_limit),
       randomize_questions: Boolean(testEditor.value.randomize_questions),
@@ -356,6 +383,7 @@ async function saveQuestion() {
     const payload = {
       question_text: questionEditor.value.question_text.trim(),
       category: questionEditor.value.category.trim(),
+      language: questionEditor.value.language,
       image_url: questionEditor.value.image_url.trim(),
       answers: validAnswers.map((answer) => ({
         answer_text: answer.answer_text.trim(),
@@ -386,6 +414,7 @@ function editQuestion(question) {
     id: question.id,
     question_text: question.question_text,
     category: question.category,
+    language: question.language || 'ru',
     image_url: question.image_url || '',
     answers: (question.answers || []).map((answer) => ({
       answer_text: answer.answer_text,
@@ -493,6 +522,17 @@ watch(userSearch, () => {
   }, 250)
 })
 
+watch(
+  () => testEditor.value.language,
+  (nextLanguage, prevLanguage) => {
+    if (!prevLanguage || nextLanguage === prevLanguage) return
+    testEditor.value.question_ids = testEditor.value.question_ids.filter((id) => {
+      const question = questions.value.find((item) => item.id === id)
+      return question && (question.language || 'ru') === nextLanguage
+    })
+  }
+)
+
 onMounted(async () => {
   await loadAllData()
 })
@@ -540,7 +580,7 @@ onMounted(async () => {
           <tbody>
             <tr v-for="user in users" :key="user.id">
               <td>
-                <strong>{{ user.name || '—' }}</strong>
+                <strong>{{ user.name || '-' }}</strong>
                 <div>{{ user.email }}</div>
               </td>
               <td class="mono">{{ user.id }}</td>
@@ -548,7 +588,7 @@ onMounted(async () => {
                 <select v-model="assignConfigByUser[user.id].testId" @focus="ensureAssignConfig(user.id)">
                   <option disabled value="">{{ props.t('admin.assign.selectTest') }}</option>
                   <option v-for="test in tests" :key="test.id" :value="test.id">
-                    {{ test.title }}
+                    {{ test.title }} ({{ contentLanguageLabel(test.language) }})
                   </option>
                 </select>
               </td>
@@ -578,10 +618,13 @@ onMounted(async () => {
             <div v-for="assignment in assignments.slice(0, 12)" :key="assignment.id" class="assignment-item">
               <div>
                 <strong>{{ assignment.user_email }}</strong>
-                <p>{{ assignment.test_title }} · {{ modeLabel(assignment.mode) }}</p>
+                <p>
+                  {{ assignment.test_title }} · {{ contentLanguageLabel(assignment.test_language || assignment.language) }} ·
+                  {{ modeLabel(assignment.mode) }}
+                </p>
               </div>
               <div class="assignment-score">
-                <span>{{ assignment.last_score === null ? '—' : `${assignment.last_score}%` }}</span>
+                <span>{{ assignment.last_score === null ? '-' : `${assignment.last_score}%` }}</span>
                 <small>{{ props.t('admin.assign.attempts') }}: {{ assignment.attempts }}</small>
               </div>
             </div>
@@ -657,6 +700,16 @@ onMounted(async () => {
             <textarea v-model="testEditor.description" rows="2" :placeholder="props.t('admin.tests.descriptionPlaceholder')"></textarea>
           </label>
 
+          <label>
+            <span>{{ props.t('admin.tests.language') }}</span>
+            <select v-model="testEditor.language">
+              <option v-for="option in contentLanguageOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+            <small>{{ props.t('admin.tests.languageHint') }}</small>
+          </label>
+
           <div class="inline-fields">
             <label>
               <span>{{ props.t('admin.tests.limit') }}</span>
@@ -689,6 +742,12 @@ onMounted(async () => {
             <h4>{{ props.t('admin.tests.bank') }}</h4>
           </div>
           <div class="filters">
+            <select v-model="testFilterLanguage">
+              <option value="all">{{ props.t('admin.filters.allLanguages') }}</option>
+              <option v-for="option in contentLanguageOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
             <select v-model="testFilterCategory">
               <option value="all">{{ props.t('user.training.general.allCategories') }}</option>
               <option v-for="category in availableCategories" :key="category" :value="category">
@@ -709,7 +768,7 @@ onMounted(async () => {
             >
               <span>#{{ question.id }}</span>
               <span>{{ question.question_text }}</span>
-              <small>{{ question.category }}</small>
+              <small>{{ question.category }} · {{ contentLanguageLabel(question.language) }}</small>
             </button>
           </div>
         </article>
@@ -724,6 +783,7 @@ onMounted(async () => {
               <p>{{ test.description || props.t('user.tests.noDescription') }}</p>
               <small>
                 {{ test.is_legacy ? props.t('admin.tests.system') : props.t('admin.tests.custom') }} ·
+                {{ contentLanguageLabel(test.language) }} ·
                 {{ props.t('admin.tests.questionsCount', { count: test.question_count }) }} ·
                 {{ props.t('admin.tests.passPercent', { score: test.pass_score }) }}
               </small>
@@ -756,6 +816,15 @@ onMounted(async () => {
           </label>
 
           <label>
+            <span>{{ props.t('admin.questions.language') }}</span>
+            <select v-model="questionEditor.language">
+              <option v-for="option in contentLanguageOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+
+          <label>
             <span>{{ props.t('admin.questions.image') }}</span>
             <input v-model="questionEditor.image_url" type="text" :placeholder="props.t('admin.questions.imagePlaceholder')" />
           </label>
@@ -779,6 +848,12 @@ onMounted(async () => {
 
         <article class="editor-card">
           <div class="filters">
+            <select v-model="questionFilterLanguage">
+              <option value="all">{{ props.t('admin.filters.allLanguages') }}</option>
+              <option v-for="option in contentLanguageOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
             <select v-model="questionFilterCategory">
               <option value="all">{{ props.t('user.training.general.allCategories') }}</option>
               <option v-for="category in availableCategories" :key="category" :value="category">
@@ -791,7 +866,7 @@ onMounted(async () => {
           <div class="question-list">
             <div v-for="question in filteredQuestionsForBank" :key="question.id" class="question-item">
               <div>
-                <strong>#{{ question.id }} · {{ question.category }}</strong>
+                <strong>#{{ question.id }} · {{ question.category }} · {{ contentLanguageLabel(question.language) }}</strong>
                 <p>{{ question.question_text }}</p>
                 <small>{{ props.t('admin.questions.answersCount', { count: question.answers?.length || question.answers_count || 0 }) }}</small>
               </div>
@@ -1000,6 +1075,11 @@ onMounted(async () => {
   color: #1a3c47;
 }
 
+.editor-card label small {
+  color: #4a6874;
+  font-size: 0.8rem;
+}
+
 input,
 textarea,
 select {
@@ -1036,7 +1116,7 @@ select:focus-visible {
 
 .filters {
   display: grid;
-  grid-template-columns: 0.8fr 1.2fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 10px;
 }

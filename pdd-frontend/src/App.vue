@@ -457,6 +457,8 @@ onMounted(() => {
   padding: 24px;
   max-width: 1260px;
   margin: 0 auto;
+  position: relative;
+  isolation: isolate;
 }
 
 .shell-header {
@@ -470,6 +472,9 @@ onMounted(() => {
   gap: 14px;
   backdrop-filter: blur(10px);
   box-shadow: var(--shadow-soft);
+  position: relative;
+  z-index: 30;
+  overflow: visible;
 }
 
 .shell-header h1 {
@@ -551,6 +556,8 @@ onMounted(() => {
 
 .shell-content {
   margin-top: 16px;
+  position: relative;
+  z-index: 1;
 }
 
 @media (max-width: 980px) {

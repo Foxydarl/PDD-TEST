@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Header, HTTPException, Query
+﻿from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 import hashlib
@@ -24,6 +24,9 @@ ADMIN_TOKEN = hashlib.sha256(
     f"{ADMIN_EMAIL}:{ADMIN_PASSWORD}:pdd-admin-secret".encode("utf-8")
 ).hexdigest()
 
+SUPPORTED_CONTENT_LANGUAGES = {"ru", "en", "kk"}
+DEFAULT_CONTENT_LANGUAGE = "ru"
+
 
 class Answer(BaseModel):
     id: int
@@ -36,6 +39,7 @@ class Question(BaseModel):
     id: int
     question_text: str
     category: str
+    language: str = DEFAULT_CONTENT_LANGUAGE
     image_url: Optional[str] = None
     answers: List[Answer] = []
 
@@ -60,6 +64,7 @@ class AdminQuestionAnswerInput(BaseModel):
 class AdminQuestionPayload(BaseModel):
     question_text: str
     category: str
+    language: str = DEFAULT_CONTENT_LANGUAGE
     image_url: Optional[str] = ""
     answers: List[AdminQuestionAnswerInput] = Field(default_factory=list)
 
@@ -67,6 +72,7 @@ class AdminQuestionPayload(BaseModel):
 class CreateAdminTestRequest(BaseModel):
     title: str
     description: Optional[str] = ""
+    language: str = DEFAULT_CONTENT_LANGUAGE
     question_ids: List[int] = Field(default_factory=list)
     question_limit: Optional[int] = None
     randomize_questions: bool = True
@@ -77,6 +83,7 @@ class CreateAdminTestRequest(BaseModel):
 class UpdateAdminTestRequest(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    language: Optional[str] = None
     question_ids: Optional[List[int]] = None
     question_limit: Optional[int] = None
     randomize_questions: Optional[bool] = None
@@ -160,6 +167,17 @@ def _clean_mode(raw_mode: str) -> str:
     return mode
 
 
+def _normalize_content_language(raw_language: Optional[str], allow_all: bool = False) -> str:
+    language = (raw_language or DEFAULT_CONTENT_LANGUAGE).strip().lower()
+    allowed = set(SUPPORTED_CONTENT_LANGUAGES)
+    if allow_all:
+        allowed.add("all")
+    if language not in allowed:
+        options = ", ".join(sorted(allowed))
+        raise HTTPException(status_code=400, detail=f"Language must be one of: {options}")
+    return language
+
+
 def _now_iso() -> str:
     return datetime.utcnow().isoformat()
 
@@ -197,6 +215,8 @@ def _validate_question_payload(payload: AdminQuestionPayload):
     if not payload.category.strip():
         raise HTTPException(status_code=400, detail="Category is required")
 
+    _normalize_content_language(payload.language)
+
     if len(payload.answers) < 2:
         raise HTTPException(status_code=400, detail="At least 2 answer options are required")
 
@@ -221,11 +241,16 @@ def _fetch_questions_by_ids(
     placeholders = ",".join(["?"] * len(question_ids))
     cursor.execute(
         f"""
-        SELECT id, question_text, category, image_url
+        SELECT
+            id,
+            question_text,
+            category,
+            COALESCE(NULLIF(language, ''), ?) AS language,
+            image_url
         FROM questions
         WHERE id IN ({placeholders})
         """,
-        question_ids,
+        [DEFAULT_CONTENT_LANGUAGE, *question_ids],
     )
 
     questions_map = {row["id"]: row for row in cursor.fetchall()}
@@ -265,6 +290,7 @@ def _fetch_questions_by_ids(
                 "id": row["id"],
                 "question_text": row["question_text"],
                 "category": row["category"],
+                "language": row["language"],
                 "image_url": row["image_url"],
                 "answers": answers,
             }
@@ -275,7 +301,31 @@ def _fetch_questions_by_ids(
 
 def _resolve_test_question_ids(cursor, test_id: int, is_legacy: bool) -> List[int]:
     if is_legacy:
-        cursor.execute("SELECT id FROM questions ORDER BY id")
+        cursor.execute(
+            """
+            SELECT COALESCE(NULLIF(language, ''), ?) AS language
+            FROM admin_tests
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (DEFAULT_CONTENT_LANGUAGE, test_id),
+        )
+        test_row = cursor.fetchone()
+        test_language = (
+            _normalize_content_language(test_row["language"])
+            if test_row is not None
+            else DEFAULT_CONTENT_LANGUAGE
+        )
+
+        cursor.execute(
+            """
+            SELECT id
+            FROM questions
+            WHERE COALESCE(NULLIF(language, ''), ?) = ?
+            ORDER BY id
+            """,
+            (DEFAULT_CONTENT_LANGUAGE, test_language),
+        )
         return [row["id"] for row in cursor.fetchall()]
 
     cursor.execute(
@@ -318,24 +368,24 @@ def _build_recommendations(category_stats: List[dict], wrong_questions: List[dic
     recommendations: List[str] = []
 
     if not wrong_questions:
-        recommendations.append("Ошибок нет. Можно переходить к более сложным тестам.")
+        recommendations.append("РћС€РёР±РѕРє РЅРµС‚. РњРѕР¶РЅРѕ РїРµСЂРµС…РѕРґРёС‚СЊ Рє Р±РѕР»РµРµ СЃР»РѕР¶РЅС‹Рј С‚РµСЃС‚Р°Рј.")
         return recommendations
 
     weak_categories = [item for item in category_stats if item["wrong"] > 0]
     if weak_categories:
         top = weak_categories[0]
         recommendations.append(
-            f"Сфокусируйся на категории '{top['category']}' — здесь больше всего ошибок ({top['wrong']})."
+            f"РЎС„РѕРєСѓСЃРёСЂСѓР№СЃСЏ РЅР° РєР°С‚РµРіРѕСЂРёРё '{top['category']}' вЂ” Р·РґРµСЃСЊ Р±РѕР»СЊС€Рµ РІСЃРµРіРѕ РѕС€РёР±РѕРє ({top['wrong']})."
         )
 
     if len(weak_categories) > 1:
         second = weak_categories[1]
         recommendations.append(
-            f"После этого повтори категорию '{second['category']}' (ошибок: {second['wrong']})."
+            f"РџРѕСЃР»Рµ СЌС‚РѕРіРѕ РїРѕРІС‚РѕСЂРё РєР°С‚РµРіРѕСЂРёСЋ '{second['category']}' (РѕС€РёР±РѕРє: {second['wrong']})."
         )
 
     recommendations.append(
-        "Разбери пояснения к ошибкам и пройди тест еще раз в режиме обучения для закрепления."
+        "Р Р°Р·Р±РµСЂРё РїРѕСЏСЃРЅРµРЅРёСЏ Рє РѕС€РёР±РєР°Рј Рё РїСЂРѕР№РґРё С‚РµСЃС‚ РµС‰Рµ СЂР°Р· РІ СЂРµР¶РёРјРµ РѕР±СѓС‡РµРЅРёСЏ РґР»СЏ Р·Р°РєСЂРµРїР»РµРЅРёСЏ."
     )
 
     return recommendations
@@ -454,7 +504,7 @@ def _build_attempt_questions_review(cursor, question_ids: List[int], answer_map:
                 "category": question["category"],
                 "image_url": question.get("image_url"),
                 "selected_answer_id": selected_answer_id,
-                "selected_answer_text": selected_answer["answer_text"] if selected_answer else "Не выбран",
+                "selected_answer_text": selected_answer["answer_text"] if selected_answer else "РќРµ РІС‹Р±СЂР°РЅ",
                 "correct_answer_id": correct_answer["id"] if correct_answer else None,
                 "correct_answer_text": correct_answer["answer_text"] if correct_answer else "",
                 "is_correct": bool(selected_answer and selected_answer.get("is_correct")),
@@ -475,6 +525,7 @@ def _initialize_admin_schema():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
             description TEXT DEFAULT '',
+            language TEXT DEFAULT 'ru',
             is_legacy INTEGER DEFAULT 0,
             question_limit INTEGER DEFAULT 20,
             randomize_questions INTEGER DEFAULT 1,
@@ -555,6 +606,8 @@ def _initialize_admin_schema():
     )
 
     _ensure_column(cur, "test_results", "assigned_test_id", "assigned_test_id INTEGER")
+    _ensure_column(cur, "questions", "language", "language TEXT DEFAULT 'ru'")
+    _ensure_column(cur, "admin_tests", "language", "language TEXT DEFAULT 'ru'")
     _ensure_column(cur, "admin_tests", "randomize_questions", "randomize_questions INTEGER DEFAULT 1")
     _ensure_column(cur, "admin_tests", "randomize_answers", "randomize_answers INTEGER DEFAULT 0")
     _ensure_column(cur, "admin_tests", "pass_score", "pass_score INTEGER DEFAULT 70")
@@ -567,6 +620,23 @@ def _initialize_admin_schema():
     _ensure_column(cur, "admin_assignments", "pass_score", "pass_score INTEGER DEFAULT 70")
     _ensure_column(cur, "admin_assignments", "allow_review", "allow_review INTEGER DEFAULT 1")
 
+    cur.execute(
+        """
+        UPDATE questions
+        SET language = ?
+        WHERE language IS NULL OR trim(language) = ''
+        """,
+        (DEFAULT_CONTENT_LANGUAGE,),
+    )
+    cur.execute(
+        """
+        UPDATE admin_tests
+        SET language = ?
+        WHERE language IS NULL OR trim(language) = ''
+        """,
+        (DEFAULT_CONTENT_LANGUAGE,),
+    )
+
     cur.execute("SELECT id FROM admin_tests WHERE is_legacy = 1 LIMIT 1")
     legacy_test = cur.fetchone()
 
@@ -576,6 +646,7 @@ def _initialize_admin_schema():
             INSERT INTO admin_tests (
                 title,
                 description,
+                language,
                 is_legacy,
                 question_limit,
                 randomize_questions,
@@ -583,11 +654,12 @@ def _initialize_admin_schema():
                 pass_score,
                 created_by
             )
-            VALUES (?, ?, 1, 20, 1, 0, 70, 'system')
+            VALUES (?, ?, ?, 1, 20, 1, 0, 70, 'system')
             """,
             (
-                "Общий тест ПДД",
-                "Системный тест из существующей базы вопросов (случайные 20 вопросов).",
+                "System PDD Test",
+                "Legacy system test from shared question pool (random 20 questions).",
+                DEFAULT_CONTENT_LANGUAGE,
             ),
         )
 
@@ -601,7 +673,7 @@ _initialize_admin_schema()
 @router.post("/admin/login")
 async def admin_login(payload: AdminLoginRequest):
     if payload.email != ADMIN_EMAIL or payload.password != ADMIN_PASSWORD:
-        raise HTTPException(status_code=401, detail="Неверный логин или пароль администратора")
+        raise HTTPException(status_code=401, detail="РќРµРІРµСЂРЅС‹Р№ Р»РѕРіРёРЅ РёР»Рё РїР°СЂРѕР»СЊ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂР°")
 
     return {"role": "admin", "email": ADMIN_EMAIL, "token": ADMIN_TOKEN}
 
@@ -652,13 +724,28 @@ async def admin_get_users(
 
 @router.get("/admin/categories")
 async def admin_get_categories(
+    language: str = "all",
     x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token"),
 ):
     require_admin(x_admin_token)
+    normalized_language = _normalize_content_language(language, allow_all=True)
 
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT DISTINCT category FROM questions ORDER BY category")
+
+    if normalized_language == "all":
+        cur.execute("SELECT DISTINCT category FROM questions ORDER BY category")
+    else:
+        cur.execute(
+            """
+            SELECT DISTINCT category
+            FROM questions
+            WHERE COALESCE(NULLIF(language, ''), ?) = ?
+            ORDER BY category
+            """,
+            (DEFAULT_CONTENT_LANGUAGE, normalized_language),
+        )
+
     categories = [row["category"] for row in cur.fetchall()]
     conn.close()
     return {"categories": categories}
@@ -668,16 +755,27 @@ async def admin_get_categories(
 async def admin_get_questions(
     search: str = "",
     category: str = "all",
+    language: str = "all",
     include_answers: bool = True,
     x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token"),
 ):
     require_admin(x_admin_token)
+    normalized_language = _normalize_content_language(language, allow_all=True)
 
     conn = get_db_connection()
     cur = conn.cursor()
 
-    query = "SELECT id, question_text, category, image_url FROM questions WHERE 1=1"
-    params: List[Any] = []
+    query = """
+        SELECT
+            id,
+            question_text,
+            category,
+            COALESCE(NULLIF(language, ''), ?) AS language,
+            image_url
+        FROM questions
+        WHERE 1=1
+    """
+    params: List[Any] = [DEFAULT_CONTENT_LANGUAGE]
 
     if search.strip():
         pattern = f"%{search.strip().lower()}%"
@@ -688,6 +786,10 @@ async def admin_get_questions(
         query += " AND category = ?"
         params.append(category.strip())
 
+    if normalized_language != "all":
+        query += " AND COALESCE(NULLIF(language, ''), ?) = ?"
+        params.extend([DEFAULT_CONTENT_LANGUAGE, normalized_language])
+
     query += " ORDER BY category, id"
     cur.execute(query, params)
 
@@ -697,6 +799,7 @@ async def admin_get_questions(
             "id": row["id"],
             "question_text": row["question_text"],
             "category": row["category"],
+            "language": row["language"],
             "image_url": row["image_url"],
         }
 
@@ -733,16 +836,22 @@ async def admin_create_question(
 ):
     require_admin(x_admin_token)
     _validate_question_payload(payload)
+    question_language = _normalize_content_language(payload.language)
 
     conn = get_db_connection()
     cur = conn.cursor()
 
     cur.execute(
         """
-        INSERT INTO questions (question_text, category, image_url, points)
-        VALUES (?, ?, ?, 1)
+        INSERT INTO questions (question_text, category, language, image_url, points)
+        VALUES (?, ?, ?, ?, 1)
         """,
-        (payload.question_text.strip(), payload.category.strip(), (payload.image_url or "").strip() or None),
+        (
+            payload.question_text.strip(),
+            payload.category.strip(),
+            question_language,
+            (payload.image_url or "").strip() or None,
+        ),
     )
     question_id = cur.lastrowid
 
@@ -774,6 +883,7 @@ async def admin_update_question(
 ):
     require_admin(x_admin_token)
     _validate_question_payload(payload)
+    question_language = _normalize_content_language(payload.language)
 
     conn = get_db_connection()
     cur = conn.cursor()
@@ -786,12 +896,13 @@ async def admin_update_question(
     cur.execute(
         """
         UPDATE questions
-        SET question_text = ?, category = ?, image_url = ?
+        SET question_text = ?, category = ?, language = ?, image_url = ?
         WHERE id = ?
         """,
         (
             payload.question_text.strip(),
             payload.category.strip(),
+            question_language,
             (payload.image_url or "").strip() or None,
             question_id,
         ),
@@ -857,6 +968,7 @@ async def admin_get_tests(
             t.id,
             t.title,
             t.description,
+            COALESCE(NULLIF(t.language, ''), ?) as language,
             t.is_legacy,
             t.question_limit,
             t.randomize_questions,
@@ -871,6 +983,7 @@ async def admin_get_tests(
             t.id,
             t.title,
             t.description,
+            COALESCE(NULLIF(t.language, ''), ?),
             t.is_legacy,
             t.question_limit,
             t.randomize_questions,
@@ -880,16 +993,29 @@ async def admin_get_tests(
             t.created_at
         ORDER BY t.created_at DESC, t.id DESC
         """
+        ,
+        (DEFAULT_CONTENT_LANGUAGE, DEFAULT_CONTENT_LANGUAGE),
     )
     rows = cur.fetchall()
 
-    cur.execute("SELECT COUNT(*) FROM questions")
-    total_pool = cur.fetchone()[0]
+    cur.execute(
+        """
+        SELECT
+            COALESCE(NULLIF(language, ''), ?) AS language,
+            COUNT(*) AS total
+        FROM questions
+        GROUP BY COALESCE(NULLIF(language, ''), ?)
+        """,
+        (DEFAULT_CONTENT_LANGUAGE, DEFAULT_CONTENT_LANGUAGE),
+    )
+    language_pool = {row["language"]: int(row["total"]) for row in cur.fetchall()}
 
     tests = []
     for row in rows:
+        test_language = _normalize_content_language(row["language"])
         if row["is_legacy"]:
-            question_count = min(row["question_limit"], total_pool)
+            pool_size = language_pool.get(test_language, 0)
+            question_count = min(row["question_limit"], pool_size)
         else:
             question_count = row["custom_questions"]
 
@@ -898,6 +1024,7 @@ async def admin_get_tests(
                 "id": row["id"],
                 "title": row["title"],
                 "description": row["description"],
+                "language": test_language,
                 "is_legacy": bool(row["is_legacy"]),
                 "question_limit": row["question_limit"],
                 "randomize_questions": bool(row["randomize_questions"]),
@@ -923,7 +1050,14 @@ async def admin_get_test_details(
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("SELECT * FROM admin_tests WHERE id = ?", (test_id,))
+    cur.execute(
+        """
+        SELECT *, COALESCE(NULLIF(language, ''), ?) as language_normalized
+        FROM admin_tests
+        WHERE id = ?
+        """,
+        (DEFAULT_CONTENT_LANGUAGE, test_id),
+    )
     row = cur.fetchone()
     if row is None:
         conn.close()
@@ -939,6 +1073,7 @@ async def admin_get_test_details(
             "id": row["id"],
             "title": row["title"],
             "description": row["description"],
+            "language": _normalize_content_language(row["language_normalized"]),
             "is_legacy": bool(row["is_legacy"]),
             "question_limit": row["question_limit"],
             "randomize_questions": bool(row["randomize_questions"]),
@@ -960,6 +1095,7 @@ async def admin_create_test(
     title = payload.title.strip()
     if not title:
         raise HTTPException(status_code=400, detail="Test title is required")
+    test_language = _normalize_content_language(payload.language)
 
     question_ids = _dedupe_int_list(payload.question_ids)
     if len(question_ids) < 2:
@@ -969,11 +1105,28 @@ async def admin_create_test(
     cur = conn.cursor()
 
     placeholders = ",".join(["?"] * len(question_ids))
-    cur.execute(f"SELECT COUNT(*) FROM questions WHERE id IN ({placeholders})", question_ids)
-    found = cur.fetchone()[0]
-    if found != len(question_ids):
+    cur.execute(
+        f"""
+        SELECT id, COALESCE(NULLIF(language, ''), ?) AS language
+        FROM questions
+        WHERE id IN ({placeholders})
+        """,
+        [DEFAULT_CONTENT_LANGUAGE, *question_ids],
+    )
+    question_rows = cur.fetchall()
+    if len(question_rows) != len(question_ids):
         conn.close()
         raise HTTPException(status_code=400, detail="Some questions were not found")
+
+    language_mismatch = [
+        row["id"] for row in question_rows if _normalize_content_language(row["language"]) != test_language
+    ]
+    if language_mismatch:
+        conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail="Selected questions must match test language",
+        )
 
     question_limit = payload.question_limit if payload.question_limit is not None else len(question_ids)
     question_limit = max(1, min(question_limit, len(question_ids)))
@@ -984,6 +1137,7 @@ async def admin_create_test(
         INSERT INTO admin_tests (
             title,
             description,
+            language,
             is_legacy,
             question_limit,
             randomize_questions,
@@ -991,11 +1145,12 @@ async def admin_create_test(
             pass_score,
             created_by
         )
-        VALUES (?, ?, 0, ?, ?, ?, ?, 'admin')
+        VALUES (?, ?, ?, 0, ?, ?, ?, ?, 'admin')
         """,
         (
             title,
             (payload.description or "").strip(),
+            test_language,
             question_limit,
             _normalize_bool(payload.randomize_questions, True),
             _normalize_bool(payload.randomize_answers, False),
@@ -1037,6 +1192,7 @@ async def admin_update_test(
         raise HTTPException(status_code=404, detail="Test not found")
 
     is_legacy = bool(test_row["is_legacy"])
+    current_test_language = _normalize_content_language(test_row["language"] or DEFAULT_CONTENT_LANGUAGE)
 
     title = payload.title.strip() if payload.title is not None else test_row["title"]
     if not title:
@@ -1044,11 +1200,26 @@ async def admin_update_test(
         raise HTTPException(status_code=400, detail="Test title is required")
 
     description = payload.description if payload.description is not None else test_row["description"]
+    test_language = (
+        _normalize_content_language(payload.language)
+        if payload.language is not None
+        else current_test_language
+    )
 
     if is_legacy:
         question_ids = []
-        cur.execute("SELECT COUNT(*) FROM questions")
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM questions
+            WHERE COALESCE(NULLIF(language, ''), ?) = ?
+            """,
+            (DEFAULT_CONTENT_LANGUAGE, test_language),
+        )
         max_pool = cur.fetchone()[0]
+        if max_pool <= 0:
+            conn.close()
+            raise HTTPException(status_code=400, detail="No questions found for selected test language")
     else:
         if payload.question_ids is None:
             cur.execute(
@@ -1069,11 +1240,28 @@ async def admin_update_test(
             raise HTTPException(status_code=400, detail="Select at least 2 questions")
 
         placeholders = ",".join(["?"] * len(question_ids))
-        cur.execute(f"SELECT COUNT(*) FROM questions WHERE id IN ({placeholders})", question_ids)
-        found = cur.fetchone()[0]
-        if found != len(question_ids):
+        cur.execute(
+            f"""
+            SELECT id, COALESCE(NULLIF(language, ''), ?) AS language
+            FROM questions
+            WHERE id IN ({placeholders})
+            """,
+            [DEFAULT_CONTENT_LANGUAGE, *question_ids],
+        )
+        question_rows = cur.fetchall()
+        if len(question_rows) != len(question_ids):
             conn.close()
             raise HTTPException(status_code=400, detail="Some questions were not found")
+
+        language_mismatch = [
+            row["id"] for row in question_rows if _normalize_content_language(row["language"]) != test_language
+        ]
+        if language_mismatch:
+            conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail="Selected questions must match test language",
+            )
 
         max_pool = len(question_ids)
 
@@ -1091,6 +1279,7 @@ async def admin_update_test(
         UPDATE admin_tests
         SET title = ?,
             description = ?,
+            language = ?,
             question_limit = ?,
             randomize_questions = ?,
             randomize_answers = ?,
@@ -1100,6 +1289,7 @@ async def admin_update_test(
         (
             title,
             (description or "").strip(),
+            test_language,
             question_limit,
             randomize_questions,
             randomize_answers,
@@ -1142,13 +1332,25 @@ async def admin_assign_test(
         conn.close()
         raise HTTPException(status_code=404, detail="Test not found")
 
+    test_language = _normalize_content_language(test_row["language"] or DEFAULT_CONTENT_LANGUAGE)
     question_ids = _resolve_test_question_ids(cur, payload.test_id, bool(test_row["is_legacy"]))
 
     if bool(test_row["is_legacy"]):
-        cur.execute("SELECT COUNT(*) FROM questions")
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM questions
+            WHERE COALESCE(NULLIF(language, ''), ?) = ?
+            """,
+            (DEFAULT_CONTENT_LANGUAGE, test_language),
+        )
         available_questions = cur.fetchone()[0]
     else:
         available_questions = len(question_ids)
+
+    if available_questions <= 0:
+        conn.close()
+        raise HTTPException(status_code=400, detail="No questions available for selected test language")
 
     base_limit = payload.question_limit if payload.question_limit is not None else test_row["question_limit"]
     question_limit = max(1, min(int(base_limit), max(1, available_questions)))
@@ -1245,11 +1447,12 @@ async def admin_get_assignments(
             a.randomize_answers,
             a.pass_score,
             t.id as test_id,
-            t.title as test_title
+            t.title as test_title,
+            COALESCE(NULLIF(t.language, ''), ?) as test_language
         FROM admin_assignments a
         JOIN admin_tests t ON t.id = a.test_id
     """
-    params: List[Any] = []
+    params: List[Any] = [DEFAULT_CONTENT_LANGUAGE]
 
     if user_id.strip():
         query += " WHERE a.user_id = ? "
@@ -1277,6 +1480,7 @@ async def admin_get_assignments(
             "pass_score": row["pass_score"],
             "test_id": row["test_id"],
             "test_title": row["test_title"],
+            "test_language": _normalize_content_language(row["test_language"]),
         }
         for row in rows
     ]
@@ -1412,13 +1616,14 @@ async def get_my_tests(user_id: str):
             t.id as test_id,
             t.title,
             t.description,
-            t.is_legacy
+            t.is_legacy,
+            COALESCE(NULLIF(t.language, ''), ?) as test_language
         FROM admin_assignments a
         JOIN admin_tests t ON t.id = a.test_id
         WHERE a.user_id = ?
         ORDER BY a.assigned_at DESC
         """,
-        (user_id,),
+        (DEFAULT_CONTENT_LANGUAGE, user_id),
     )
 
     assignments = [
@@ -1427,6 +1632,7 @@ async def get_my_tests(user_id: str):
             "test_id": row["test_id"],
             "title": row["title"],
             "description": row["description"],
+            "language": _normalize_content_language(row["test_language"]),
             "is_legacy": bool(row["is_legacy"]),
             "question_limit": row["question_limit"],
             "mode": row["mode"],
@@ -1457,12 +1663,13 @@ async def get_assigned_test_questions(assignment_id: int, user_id: str):
         SELECT
             a.*,
             t.title,
-            t.is_legacy
+            t.is_legacy,
+            COALESCE(NULLIF(t.language, ''), ?) as test_language
         FROM admin_assignments a
         JOIN admin_tests t ON t.id = a.test_id
         WHERE a.id = ? AND a.user_id = ?
         """,
-        (assignment_id, user_id),
+        (DEFAULT_CONTENT_LANGUAGE, assignment_id, user_id),
     )
     assignment = cur.fetchone()
 
@@ -1500,6 +1707,7 @@ async def get_assigned_test_questions(assignment_id: int, user_id: str):
         "assignment_id": assignment_id,
         "test_title": assignment["title"],
         "mode": assignment["mode"],
+        "language": _normalize_content_language(assignment["test_language"]),
         "pass_score": assignment["pass_score"],
         "max_attempts": assignment["max_attempts"],
         "attempts_used": attempts_used,
@@ -1517,12 +1725,13 @@ async def submit_assigned_test(assignment_id: int, payload: AssignedTestSubmissi
         SELECT
             a.*,
             t.title,
-            t.is_legacy
+            t.is_legacy,
+            COALESCE(NULLIF(t.language, ''), ?) as test_language
         FROM admin_assignments a
         JOIN admin_tests t ON t.id = a.test_id
         WHERE a.id = ? AND a.user_id = ?
         """,
-        (assignment_id, payload.user_id),
+        (DEFAULT_CONTENT_LANGUAGE, assignment_id, payload.user_id),
     )
     assignment = cur.fetchone()
 
@@ -1547,7 +1756,15 @@ async def submit_assigned_test(assignment_id: int, payload: AssignedTestSubmissi
 
     if bool(assignment["is_legacy"]):
         placeholders = ",".join(["?"] * len(question_ids))
-        cur.execute(f"SELECT COUNT(*) FROM questions WHERE id IN ({placeholders})", question_ids)
+        cur.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM questions
+            WHERE id IN ({placeholders})
+              AND COALESCE(NULLIF(language, ''), ?) = ?
+            """,
+            [*question_ids, DEFAULT_CONTENT_LANGUAGE, _normalize_content_language(assignment["test_language"])],
+        )
         found = cur.fetchone()[0]
         if found != len(question_ids):
             conn.close()
@@ -1595,7 +1812,7 @@ async def submit_assigned_test(assignment_id: int, payload: AssignedTestSubmissi
         answer_rows = cur.fetchall()
 
         selected_answer_id = answer_map.get(question_id)
-        selected_answer_text = "Не выбран"
+        selected_answer_text = "РќРµ РІС‹Р±СЂР°РЅ"
         selected_correct = False
         correct_answer_text = ""
         explanation = ""
@@ -1782,11 +1999,23 @@ async def my_analytics(user_id: str, limit: int = Query(50, ge=1, le=500)):
 
 
 @router.get("/categories")
-async def get_categories():
+async def get_categories(language: str = "all"):
+    normalized_language = _normalize_content_language(language, allow_all=True)
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT DISTINCT category FROM questions ORDER BY category")
+    if normalized_language == "all":
+        cursor.execute("SELECT DISTINCT category FROM questions ORDER BY category")
+    else:
+        cursor.execute(
+            """
+            SELECT DISTINCT category
+            FROM questions
+            WHERE COALESCE(NULLIF(language, ''), ?) = ?
+            ORDER BY category
+            """,
+            (DEFAULT_CONTENT_LANGUAGE, normalized_language),
+        )
     categories = [row["category"] for row in cursor.fetchall()]
 
     conn.close()
@@ -1796,9 +2025,11 @@ async def get_categories():
 @router.get("/training/questions")
 async def get_training_questions(
     limit: int = Query(20, ge=1, le=100),
+    language: str = "all",
     categories: Optional[List[str]] = Query(None),
     categories_alt: Optional[List[str]] = Query(None, alias="categories[]"),
 ):
+    normalized_language = _normalize_content_language(language, allow_all=True)
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -1824,22 +2055,30 @@ async def get_training_questions(
                 break
 
     query_params: List[Any] = []
-    where_clause = ""
+    where_parts: List[str] = []
     if selected_categories:
         placeholders = ",".join(["?"] * len(selected_categories))
-        where_clause = f"WHERE category IN ({placeholders})"
+        where_parts.append(f"category IN ({placeholders})")
         query_params.extend(selected_categories)
+
+    if normalized_language != "all":
+        where_parts.append("COALESCE(NULLIF(language, ''), ?) = ?")
+        query_params.extend([DEFAULT_CONTENT_LANGUAGE, normalized_language])
+
+    where_clause = ""
+    if where_parts:
+        where_clause = "WHERE " + " AND ".join(where_parts)
 
     query_params.append(limit)
     cursor.execute(
         f"""
-        SELECT id, question_text, category, image_url
+        SELECT id, question_text, category, COALESCE(NULLIF(language, ''), ?) AS language, image_url
         FROM questions
         {where_clause}
         ORDER BY RANDOM()
         LIMIT ?
         """,
-        tuple(query_params),
+        tuple([DEFAULT_CONTENT_LANGUAGE, *query_params]),
     )
 
     rows = cursor.fetchall()
@@ -1873,6 +2112,7 @@ async def get_training_questions(
                 "id": question_row["id"],
                 "question_text": question_row["question_text"],
                 "category": question_row["category"],
+                "language": _normalize_content_language(question_row["language"]),
                 "image_url": question_row["image_url"],
                 "answers": answers,
             }
@@ -1883,25 +2123,31 @@ async def get_training_questions(
     return {
         "questions": result,
         "limit": limit,
+        "language": normalized_language,
         "categories": selected_categories or ["all"],
     }
 
 
 @router.get("/questions/{category}")
-async def get_questions(category: str, limit: int = 20):
+async def get_questions(category: str, limit: int = 20, language: str = "all"):
+    normalized_language = _normalize_content_language(language, allow_all=True)
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute(
-        """
-        SELECT id, question_text, category, image_url
+    query = """
+        SELECT id, question_text, category, COALESCE(NULLIF(language, ''), ?) AS language, image_url
         FROM questions
-        WHERE category = ? OR ? = 'all'
-        ORDER BY RANDOM()
-        LIMIT ?
-        """,
-        (category, category, limit),
-    )
+        WHERE (category = ? OR ? = 'all')
+    """
+    params: List[Any] = [DEFAULT_CONTENT_LANGUAGE, category, category]
+
+    if normalized_language != "all":
+        query += " AND COALESCE(NULLIF(language, ''), ?) = ?"
+        params.extend([DEFAULT_CONTENT_LANGUAGE, normalized_language])
+
+    query += " ORDER BY RANDOM() LIMIT ?"
+    params.append(limit)
+    cursor.execute(query, tuple(params))
 
     questions = cursor.fetchall()
     result = []
@@ -1931,6 +2177,7 @@ async def get_questions(category: str, limit: int = 20):
                 id=q["id"],
                 question_text=q["question_text"],
                 category=q["category"],
+                language=_normalize_content_language(q["language"]),
                 image_url=q["image_url"],
                 answers=answers,
             )
@@ -2057,3 +2304,4 @@ async def get_user_stats(user_id: str):
 
     conn.close()
     return {"stats": stats}
+

@@ -24,6 +24,7 @@ function normalizeQuestion(question) {
 
   return {
     ...question,
+    language: (question.language || 'ru').toString().toLowerCase(),
     image_url: question.image_url || '',
     answers_count:
       question.answers_count !== undefined
@@ -47,6 +48,7 @@ function normalizeAssignment(item) {
   return {
     ...item,
     assignment_id: assignmentId,
+    language: (item.language || item.test_language || 'ru').toString().toLowerCase(),
     mode,
     attempts,
     max_attempts: maxAttempts,
@@ -243,9 +245,14 @@ export async function fetchAdminQuestions(token, params = {}) {
 
     const rawSearch = (params.search || '').toString().trim().toLowerCase()
     const category = params.category || 'all'
+    const language = (params.language || 'all').toString().toLowerCase()
 
     if (category !== 'all') {
       questions = questions.filter((item) => item.category === category)
+    }
+
+    if (language !== 'all') {
+      questions = questions.filter((item) => (item.language || 'ru').toLowerCase() === language)
     }
 
     if (rawSearch) {
@@ -300,6 +307,7 @@ export async function fetchAdminTests(token) {
   const { data } = await api.get('/admin/tests', adminHeaders(token))
   return (data.tests || []).map((item) => ({
     ...item,
+    language: (item.language || 'ru').toString().toLowerCase(),
     pass_score: Number(item.pass_score || 70),
     randomize_questions: Boolean(item.randomize_questions),
     randomize_answers: Boolean(item.randomize_answers)
@@ -323,6 +331,7 @@ export async function fetchAdminTestDetails(token, testId) {
 
     return {
       ...fallback,
+      language: (fallback.language || 'ru').toString().toLowerCase(),
       question_ids: [],
       questions: [],
       randomize_questions: Boolean(fallback.randomize_questions),
@@ -406,13 +415,17 @@ export async function fetchMyTests(userId) {
   return (data.tests || []).map(normalizeAssignment)
 }
 
-export async function fetchPublicCategories() {
-  const { data } = await api.get('/categories')
+export async function fetchPublicCategories(language = 'all') {
+  const parsedLanguage = (language || 'all').toString().toLowerCase()
+  const { data } = await api.get('/categories', {
+    params: { language: parsedLanguage }
+  })
   return data.categories || []
 }
 
-export async function fetchGeneralTrainingQuestions({ limit = 20, categories = [] } = {}) {
+export async function fetchGeneralTrainingQuestions({ limit = 20, categories = [], language = 'all' } = {}) {
   const parsedLimit = Math.max(1, Math.min(Number(limit) || 20, 100))
+  const parsedLanguage = (language || 'all').toString().toLowerCase()
   const categoryList = Array.isArray(categories)
     ? categories
         .map((item) => (item || '').toString().trim())
@@ -424,6 +437,7 @@ export async function fetchGeneralTrainingQuestions({ limit = 20, categories = [
     const { data } = await api.get('/training/questions', {
       params: {
         limit: parsedLimit,
+        language: parsedLanguage,
         categories: categoryList
       }
     })
@@ -439,7 +453,7 @@ export async function fetchGeneralTrainingQuestions({ limit = 20, categories = [
 
     if (categoryList.length === 0 || categoryList.includes('all')) {
       const { data } = await api.get('/questions/all', {
-        params: { limit: parsedLimit }
+        params: { limit: parsedLimit, language: parsedLanguage }
       })
       return {
         questions: (data.questions || []).map(normalizeQuestion)
@@ -450,7 +464,7 @@ export async function fetchGeneralTrainingQuestions({ limit = 20, categories = [
     const batches = await Promise.all(
       categoryList.map(async (category) => {
         const { data } = await api.get(`/questions/${encodeURIComponent(category)}`, {
-          params: { limit: perCategoryLimit }
+          params: { limit: perCategoryLimit, language: parsedLanguage }
         })
         return data.questions || []
       })

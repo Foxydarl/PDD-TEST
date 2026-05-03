@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { updateProfileName } from '../api/auth'
 import {
   fetchAssignedQuestions,
@@ -26,6 +26,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['profile-updated'])
+const CONTENT_LANGUAGES = ['ru', 'en', 'kk']
 
 const loading = ref(false)
 const loadingQuestions = ref(false)
@@ -40,6 +41,7 @@ const activeAssignment = ref(null)
 const generalTrainingActive = ref(false)
 const activeTestTitle = ref('')
 const activeTestMode = ref('exam')
+const activeTestLanguage = ref('ru')
 const activePassScore = ref(70)
 const questions = ref([])
 const servedQuestionIds = ref([])
@@ -51,7 +53,8 @@ const generalCategories = ref([])
 const generalConfig = ref({
   questionLimit: 20,
   useAllCategories: true,
-  selectedCategories: []
+  selectedCategories: [],
+  language: props.language || 'ru'
 })
 const instantFeedbackByQuestion = ref({})
 
@@ -76,6 +79,12 @@ const activeFeedback = computed(() => {
 
 const hasActiveRunner = computed(() => Boolean(activeAssignment.value) || generalTrainingActive.value)
 const languageTick = computed(() => props.language)
+const contentLanguageOptions = computed(() =>
+  CONTENT_LANGUAGES.map((value) => ({
+    value,
+    label: contentLanguageLabel(value)
+  }))
+)
 
 function showFlash(type, text) {
   flashType.value = type
@@ -96,11 +105,17 @@ function modeLabel(mode) {
   return mode === 'training' ? props.t('mode.training') : props.t('mode.exam')
 }
 
+function contentLanguageLabel(language) {
+  const normalized = (language || 'ru').toString().toLowerCase()
+  return props.t(`contentLanguage.${normalized}`)
+}
+
 function resetRunnerState() {
   activeAssignment.value = null
   generalTrainingActive.value = false
   activeTestTitle.value = ''
   activeTestMode.value = 'exam'
+  activeTestLanguage.value = 'ru'
   activePassScore.value = 70
   questions.value = []
   servedQuestionIds.value = []
@@ -215,7 +230,7 @@ async function loadAnalytics() {
 async function loadGeneralCategories() {
   loadingGeneralCategories.value = true
   try {
-    generalCategories.value = await fetchPublicCategories()
+    generalCategories.value = await fetchPublicCategories(generalConfig.value.language)
   } catch (error) {
     showFlash('error', errorText(error))
   } finally {
@@ -249,6 +264,7 @@ async function startAssignedTest(assignment) {
     generalTrainingActive.value = false
     activeTestTitle.value = payload.test_title
     activeTestMode.value = payload.mode || assignment.mode || 'exam'
+    activeTestLanguage.value = payload.language || assignment.language || 'ru'
     activePassScore.value = payload.pass_score || assignment.pass_score || 70
     questions.value = payload.questions
     servedQuestionIds.value = payload.questions.map((question) => question.id)
@@ -274,7 +290,8 @@ async function startGeneralTraining() {
   try {
     const payload = await fetchGeneralTrainingQuestions({
       limit: Number(generalConfig.value.questionLimit) || 20,
-      categories: generalConfig.value.useAllCategories ? [] : generalConfig.value.selectedCategories
+      categories: generalConfig.value.useAllCategories ? [] : generalConfig.value.selectedCategories,
+      language: generalConfig.value.language
     })
 
     const pickedQuestions = payload.questions || []
@@ -287,6 +304,7 @@ async function startGeneralTraining() {
     generalTrainingActive.value = true
     activeTestTitle.value = props.t('user.training.general.title')
     activeTestMode.value = 'training'
+    activeTestLanguage.value = generalConfig.value.language || 'ru'
     activePassScore.value = 70
     questions.value = pickedQuestions
     servedQuestionIds.value = pickedQuestions.map((question) => question.id)
@@ -428,6 +446,15 @@ function closeResult() {
   exitTest()
 }
 
+watch(
+  () => generalConfig.value.language,
+  async (nextLanguage, prevLanguage) => {
+    if (!nextLanguage || nextLanguage === prevLanguage) return
+    generalConfig.value.selectedCategories = []
+    await loadGeneralCategories()
+  }
+)
+
 onMounted(async () => {
   await Promise.all([loadAssignedTests(), loadAnalytics(), loadGeneralCategories()])
 })
@@ -461,10 +488,21 @@ onMounted(async () => {
         </div>
 
         <div class="training-config-grid">
-          <label>
-            <span>{{ props.t('user.training.general.questionsCount') }}</span>
-            <input v-model.number="generalConfig.questionLimit" type="number" min="5" max="100" />
-          </label>
+          <div class="training-controls-column">
+            <label>
+              <span>{{ props.t('user.training.general.questionsCount') }}</span>
+              <input v-model.number="generalConfig.questionLimit" type="number" min="5" max="100" />
+            </label>
+
+            <label>
+              <span>{{ props.t('user.training.general.language') }}</span>
+              <select v-model="generalConfig.language">
+                <option v-for="option in contentLanguageOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </label>
+          </div>
 
           <div class="categories-box">
             <p>{{ props.t('user.training.general.categories') }}</p>
@@ -517,7 +555,10 @@ onMounted(async () => {
         <article v-for="assignment in assignedTests" :key="assignment.assignment_id" class="test-card">
           <div class="test-top">
             <h3>{{ assignment.title }}</h3>
-            <span class="mode-badge">{{ modeLabel(assignment.mode) }}</span>
+            <div class="test-badges">
+              <span class="mode-badge">{{ modeLabel(assignment.mode) }}</span>
+              <span class="mode-badge language">{{ contentLanguageLabel(assignment.language) }}</span>
+            </div>
           </div>
 
           <p>{{ assignment.description || props.t('user.tests.noDescription') }}</p>
@@ -582,6 +623,7 @@ onMounted(async () => {
         <div>
           <p class="eyebrow">{{ modeLabel(activeTestMode) }}</p>
           <h2>{{ activeTestTitle }}</h2>
+          <p class="subtext">{{ props.t('user.runner.testLanguage', { language: contentLanguageLabel(activeTestLanguage) }) }}</p>
           <p class="subtext">{{ props.t('user.runner.passScore', { score: activePassScore }) }}</p>
         </div>
         <button class="secondary-btn" @click="exitTest">{{ props.t('common.exit') }}</button>
@@ -598,7 +640,7 @@ onMounted(async () => {
       </div>
 
       <article v-if="activeQuestion" class="question-card">
-        <p class="question-category">{{ activeQuestion.category }}</p>
+        <p class="question-category">{{ activeQuestion.category }} · {{ contentLanguageLabel(activeQuestion.language) }}</p>
         <h3>{{ activeQuestion.question_text }}</h3>
         <img v-if="activeQuestion.image_url" :src="activeQuestion.image_url" alt="question" class="question-image" />
 
@@ -747,6 +789,12 @@ onMounted(async () => {
   gap: 12px;
 }
 
+.training-controls-column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .training-config-grid label,
 .categories-box {
   border: 1px solid #dbe8eb;
@@ -858,6 +906,13 @@ h2 {
   gap: 10px;
 }
 
+.test-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .mode-badge {
   padding: 4px 10px;
   border-radius: 999px;
@@ -865,6 +920,11 @@ h2 {
   color: #10515d;
   font-size: 0.76rem;
   font-weight: 700;
+}
+
+.mode-badge.language {
+  background: #edf1ff;
+  color: #31457d;
 }
 
 .test-card h3 {
