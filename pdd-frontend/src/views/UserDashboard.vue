@@ -3,14 +3,24 @@ import { computed, onMounted, ref } from 'vue'
 import { updateProfileName } from '../api/auth'
 import {
   fetchAssignedQuestions,
+  fetchGeneralTrainingQuestions,
   fetchMyAnalytics,
   fetchMyTests,
+  fetchPublicCategories,
   submitAssignedTest
 } from '../api/pdd'
 
 const props = defineProps({
   session: {
     type: Object,
+    required: true
+  },
+  language: {
+    type: String,
+    required: true
+  },
+  t: {
+    type: Function,
     required: true
   }
 })
@@ -21,10 +31,13 @@ const loading = ref(false)
 const loadingQuestions = ref(false)
 const submitting = ref(false)
 const savingProfile = ref(false)
+const loadingGeneralCategories = ref(false)
+const startingGeneralTraining = ref(false)
 
 const assignedTests = ref([])
 const analytics = ref(null)
 const activeAssignment = ref(null)
+const generalTrainingActive = ref(false)
 const activeTestTitle = ref('')
 const activeTestMode = ref('exam')
 const activePassScore = ref(70)
@@ -33,6 +46,14 @@ const servedQuestionIds = ref([])
 const answers = ref({})
 const currentIndex = ref(0)
 const result = ref(null)
+
+const generalCategories = ref([])
+const generalConfig = ref({
+  questionLimit: 20,
+  useAllCategories: true,
+  selectedCategories: []
+})
+const instantFeedbackByQuestion = ref({})
 
 const profileName = ref(props.session.userName || '')
 
@@ -47,6 +68,14 @@ const progress = computed(() => {
 })
 
 const activeQuestion = computed(() => questions.value[currentIndex.value] || null)
+const activeFeedback = computed(() => {
+  const questionId = activeQuestion.value?.id
+  if (!questionId) return null
+  return instantFeedbackByQuestion.value[questionId] || null
+})
+
+const hasActiveRunner = computed(() => Boolean(activeAssignment.value) || generalTrainingActive.value)
+const languageTick = computed(() => props.language)
 
 function showFlash(type, text) {
   flashType.value = type
@@ -60,7 +89,108 @@ function showFlash(type, text) {
 }
 
 function errorText(error) {
-  return error?.response?.data?.detail || error?.message || 'Неизвестная ошибка'
+  return error?.response?.data?.detail || error?.message || props.t('common.unknownError')
+}
+
+function modeLabel(mode) {
+  return mode === 'training' ? props.t('mode.training') : props.t('mode.exam')
+}
+
+function resetRunnerState() {
+  activeAssignment.value = null
+  generalTrainingActive.value = false
+  activeTestTitle.value = ''
+  activeTestMode.value = 'exam'
+  activePassScore.value = 70
+  questions.value = []
+  servedQuestionIds.value = []
+  answers.value = {}
+  instantFeedbackByQuestion.value = {}
+  currentIndex.value = 0
+}
+
+function buildCategoryStats(rows) {
+  const grouped = {}
+  rows.forEach((row) => {
+    if (!grouped[row.category]) {
+      grouped[row.category] = { category: row.category, total: 0, correct: 0, wrong: 0 }
+    }
+
+    grouped[row.category].total += 1
+    if (row.is_correct) {
+      grouped[row.category].correct += 1
+    } else {
+      grouped[row.category].wrong += 1
+    }
+  })
+
+  return Object.values(grouped)
+    .map((item) => ({
+      ...item,
+      error_rate: item.total ? Number(((item.wrong / item.total) * 100).toFixed(1)) : 0
+    }))
+    .sort((a, b) => b.wrong - a.wrong)
+}
+
+function buildTrainingRecommendations(categoryStats, wrongQuestions) {
+  if (!wrongQuestions.length) {
+    return [props.t('user.result.noErrors')]
+  }
+
+  const tips = []
+  const worst = categoryStats.filter((item) => item.wrong > 0)
+  if (worst.length > 0) {
+    tips.push(`${modeLabel('training')}: ${worst[0].category} (${worst[0].wrong})`)
+  }
+  if (worst.length > 1) {
+    tips.push(`${modeLabel('training')}: ${worst[1].category} (${worst[1].wrong})`)
+  }
+
+  return tips
+}
+
+function resolveAnswerVisual(answer) {
+  const question = activeQuestion.value
+  if (!question) return {}
+
+  const selectedAnswerId = answers.value[question.id]
+  const isSelected = selectedAnswerId === answer.id
+
+  if (!generalTrainingActive.value) {
+    return { selected: isSelected }
+  }
+
+  if (!selectedAnswerId) {
+    return { selected: isSelected }
+  }
+
+  const feedback = instantFeedbackByQuestion.value[question.id]
+  return {
+    selected: isSelected,
+    correctHighlight: Boolean(answer.is_correct),
+    wrongHighlight: isSelected && feedback && !feedback.isCorrect
+  }
+}
+
+function toggleGeneralCategory(category) {
+  if (!category) return
+
+  if (generalConfig.value.useAllCategories) {
+    return
+  }
+
+  if (generalConfig.value.selectedCategories.includes(category)) {
+    generalConfig.value.selectedCategories = generalConfig.value.selectedCategories.filter((item) => item !== category)
+  } else {
+    generalConfig.value.selectedCategories = [...generalConfig.value.selectedCategories, category]
+  }
+}
+
+function toggleAllCategories() {
+  generalConfig.value.useAllCategories = !generalConfig.value.useAllCategories
+  if (generalConfig.value.useAllCategories) {
+    generalConfig.value.selectedCategories = []
+  }
 }
 
 async function loadAssignedTests() {
@@ -82,9 +212,20 @@ async function loadAnalytics() {
   }
 }
 
+async function loadGeneralCategories() {
+  loadingGeneralCategories.value = true
+  try {
+    generalCategories.value = await fetchPublicCategories()
+  } catch (error) {
+    showFlash('error', errorText(error))
+  } finally {
+    loadingGeneralCategories.value = false
+  }
+}
+
 async function saveProfile() {
   if (!profileName.value.trim()) {
-    showFlash('error', 'Имя не может быть пустым')
+    showFlash('error', props.t('user.nameEmpty'))
     return
   }
 
@@ -92,7 +233,7 @@ async function saveProfile() {
   try {
     const updated = await updateProfileName(profileName.value)
     emit('profile-updated', updated.name || '')
-    showFlash('success', 'Имя сохранено')
+    showFlash('success', props.t('user.nameSaved'))
   } catch (error) {
     showFlash('error', errorText(error))
   } finally {
@@ -105,12 +246,14 @@ async function startAssignedTest(assignment) {
   try {
     const payload = await fetchAssignedQuestions(assignment.assignment_id, props.session.userId)
     activeAssignment.value = assignment
+    generalTrainingActive.value = false
     activeTestTitle.value = payload.test_title
     activeTestMode.value = payload.mode || assignment.mode || 'exam'
     activePassScore.value = payload.pass_score || assignment.pass_score || 70
     questions.value = payload.questions
     servedQuestionIds.value = payload.questions.map((question) => question.id)
     answers.value = {}
+    instantFeedbackByQuestion.value = {}
     currentIndex.value = 0
     result.value = null
   } catch (error) {
@@ -120,10 +263,67 @@ async function startAssignedTest(assignment) {
   }
 }
 
+async function startGeneralTraining() {
+  if (!generalConfig.value.useAllCategories && generalConfig.value.selectedCategories.length === 0) {
+    showFlash('error', props.t('user.training.general.needCategory'))
+    return
+  }
+
+  startingGeneralTraining.value = true
+
+  try {
+    const payload = await fetchGeneralTrainingQuestions({
+      limit: Number(generalConfig.value.questionLimit) || 20,
+      categories: generalConfig.value.useAllCategories ? [] : generalConfig.value.selectedCategories
+    })
+
+    const pickedQuestions = payload.questions || []
+    if (pickedQuestions.length === 0) {
+      showFlash('error', props.t('user.training.general.emptyQuestions'))
+      return
+    }
+
+    activeAssignment.value = null
+    generalTrainingActive.value = true
+    activeTestTitle.value = props.t('user.training.general.title')
+    activeTestMode.value = 'training'
+    activePassScore.value = 70
+    questions.value = pickedQuestions
+    servedQuestionIds.value = pickedQuestions.map((question) => question.id)
+    answers.value = {}
+    instantFeedbackByQuestion.value = {}
+    currentIndex.value = 0
+    result.value = null
+  } catch (error) {
+    showFlash('error', errorText(error))
+  } finally {
+    startingGeneralTraining.value = false
+  }
+}
+
 function selectAnswer(questionId, answerId) {
   answers.value = {
     ...answers.value,
     [questionId]: answerId
+  }
+
+  if (!generalTrainingActive.value) {
+    return
+  }
+
+  const currentQuestion = questions.value.find((question) => question.id === questionId)
+  if (!currentQuestion) return
+
+  const selectedAnswer = currentQuestion.answers.find((answer) => answer.id === answerId)
+  const correctAnswer = currentQuestion.answers.find((answer) => answer.is_correct)
+
+  instantFeedbackByQuestion.value = {
+    ...instantFeedbackByQuestion.value,
+    [questionId]: {
+      isCorrect: Boolean(selectedAnswer?.is_correct),
+      correctAnswer: correctAnswer?.answer_text || '',
+      explanation: correctAnswer?.explanation || ''
+    }
   }
 }
 
@@ -140,22 +340,70 @@ function goPrev() {
 }
 
 function exitTest() {
-  activeAssignment.value = null
-  activeTestTitle.value = ''
-  activeTestMode.value = 'exam'
-  questions.value = []
-  servedQuestionIds.value = []
-  answers.value = {}
-  currentIndex.value = 0
+  resetRunnerState()
 }
 
 async function submitCurrentTest() {
-  if (!activeAssignment.value) return
-
   if (answeredCount.value !== totalQuestions.value) {
-    showFlash('error', 'Ответь на все вопросы перед отправкой')
+    showFlash('error', props.t('user.tests.completeAll'))
     return
   }
+
+  if (generalTrainingActive.value) {
+    const rows = []
+    const wrongQuestions = []
+    let correctCount = 0
+
+    questions.value.forEach((question) => {
+      const selectedAnswerId = answers.value[question.id]
+      const selectedAnswer = question.answers.find((answer) => answer.id === selectedAnswerId)
+      const correctAnswer = question.answers.find((answer) => answer.is_correct)
+      const isCorrect = Boolean(selectedAnswer?.is_correct)
+
+      if (isCorrect) {
+        correctCount += 1
+      } else {
+        wrongQuestions.push({
+          question_id: question.id,
+          question_text: question.question_text,
+          category: question.category,
+          selected_answer: selectedAnswer?.answer_text || props.t('user.training.general.chooseAnswer'),
+          correct_answer: correctAnswer?.answer_text || '',
+          explanation: correctAnswer?.explanation || ''
+        })
+      }
+
+      rows.push({
+        question_id: question.id,
+        category: question.category,
+        is_correct: isCorrect
+      })
+    })
+
+    const total = rows.length
+    const wrong = total - correctCount
+    const score = total > 0 ? Math.round((correctCount / total) * 100) : 0
+    const passScore = 70
+
+    const categoryStats = buildCategoryStats(rows)
+    const recommendations = buildTrainingRecommendations(categoryStats, wrongQuestions)
+
+    result.value = {
+      total,
+      correct: correctCount,
+      wrong,
+      score,
+      pass_score: passScore,
+      passed: score >= passScore,
+      mode: 'training',
+      category_stats: categoryStats,
+      wrong_questions: wrongQuestions,
+      recommendations
+    }
+    return
+  }
+
+  if (!activeAssignment.value) return
 
   submitting.value = true
 
@@ -166,7 +414,7 @@ async function submitCurrentTest() {
       answers: answers.value
     })
 
-    showFlash('success', 'Тест успешно отправлен')
+    showFlash('success', props.t('user.tests.sent'))
     await Promise.all([loadAssignedTests(), loadAnalytics()])
   } catch (error) {
     showFlash('error', errorText(error))
@@ -181,91 +429,135 @@ function closeResult() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadAssignedTests(), loadAnalytics()])
+  await Promise.all([loadAssignedTests(), loadAnalytics(), loadGeneralCategories()])
 })
 </script>
 
 <template>
-  <section class="user-dashboard">
+  <section class="user-dashboard" :data-language="languageTick">
     <div v-if="flashText" class="flash" :class="flashType">
       {{ flashText }}
     </div>
 
     <div class="profile-panel">
       <div>
-        <p class="eyebrow">Profile</p>
+        <p class="eyebrow">{{ props.t('user.profile') }}</p>
         <h3>{{ props.session.email }}</h3>
       </div>
       <div class="profile-controls">
-        <input v-model="profileName" type="text" placeholder="Твое имя" />
+        <input v-model="profileName" type="text" :placeholder="props.t('user.namePlaceholder')" />
         <button class="primary-btn" :disabled="savingProfile" @click="saveProfile">
-          {{ savingProfile ? 'Сохранение...' : 'Сохранить имя' }}
+          {{ savingProfile ? props.t('user.nameSaving') : props.t('user.nameSave') }}
         </button>
       </div>
     </div>
 
-    <template v-if="!activeAssignment">
+    <template v-if="!hasActiveRunner">
+      <article class="training-card">
+        <div>
+          <p class="eyebrow">{{ props.t('mode.training') }}</p>
+          <h3>{{ props.t('user.training.general.title') }}</h3>
+          <p class="subtext">{{ props.t('user.training.general.subtitle') }}</p>
+        </div>
+
+        <div class="training-config-grid">
+          <label>
+            <span>{{ props.t('user.training.general.questionsCount') }}</span>
+            <input v-model.number="generalConfig.questionLimit" type="number" min="5" max="100" />
+          </label>
+
+          <div class="categories-box">
+            <p>{{ props.t('user.training.general.categories') }}</p>
+
+            <label class="inline-check">
+              <input type="checkbox" :checked="generalConfig.useAllCategories" @change="toggleAllCategories" />
+              <span>{{ props.t('user.training.general.allCategories') }}</span>
+            </label>
+
+            <p v-if="loadingGeneralCategories" class="subtext">{{ props.t('common.loading') }}</p>
+            <p v-else-if="generalCategories.length === 0" class="subtext">{{ props.t('user.training.general.noCategories') }}</p>
+            <div v-else class="category-list" :class="{ disabled: generalConfig.useAllCategories }">
+              <label v-for="category in generalCategories" :key="category" class="inline-check">
+                <input
+                  type="checkbox"
+                  :checked="generalConfig.selectedCategories.includes(category)"
+                  :disabled="generalConfig.useAllCategories"
+                  @change="toggleGeneralCategory(category)"
+                />
+                <span>{{ category }}</span>
+              </label>
+            </div>
+
+            <small v-if="!generalConfig.useAllCategories">{{ props.t('user.training.general.pickCategories') }}</small>
+          </div>
+        </div>
+
+        <button class="primary-btn" :disabled="startingGeneralTraining" @click="startGeneralTraining">
+          {{ startingGeneralTraining ? props.t('user.training.general.starting') : props.t('user.training.general.start') }}
+        </button>
+      </article>
+
       <div class="dashboard-head">
         <div>
-          <p class="eyebrow">My Tests</p>
-          <h2>Назначенные тебе тесты</h2>
-          <p class="subtext">Тут отображаются задания, которые тебе выдал администратор.</p>
+          <p class="eyebrow">{{ props.t('user.tests.my') }}</p>
+          <h2>{{ props.t('user.tests.assignedTitle') }}</h2>
+          <p class="subtext">{{ props.t('user.tests.assignedSubtitle') }}</p>
         </div>
         <button class="secondary-btn" :disabled="loading" @click="loadAssignedTests">
-          {{ loading ? 'Загрузка...' : 'Обновить' }}
+          {{ loading ? props.t('common.loading') : props.t('user.tests.refresh') }}
         </button>
       </div>
 
       <div v-if="assignedTests.length === 0" class="empty-card">
-        <h3>Пока нет назначенных тестов</h3>
-        <p>Когда админ закрепит тест, он появится здесь автоматически.</p>
+        <h3>{{ props.t('user.tests.noneTitle') }}</h3>
+        <p>{{ props.t('user.tests.noneSubtitle') }}</p>
       </div>
 
       <div v-else class="tests-grid">
         <article v-for="assignment in assignedTests" :key="assignment.assignment_id" class="test-card">
           <div class="test-top">
             <h3>{{ assignment.title }}</h3>
-            <span class="mode-badge">{{ assignment.mode === 'training' ? 'Обучение' : 'Экзамен' }}</span>
+            <span class="mode-badge">{{ modeLabel(assignment.mode) }}</span>
           </div>
 
-          <p>{{ assignment.description || 'Без описания' }}</p>
+          <p>{{ assignment.description || props.t('user.tests.noDescription') }}</p>
 
           <div class="meta-grid">
             <div>
-              <span>Вопросов</span>
+              <span>{{ props.t('user.tests.questions') }}</span>
               <strong>{{ assignment.question_limit }}</strong>
             </div>
             <div>
-              <span>Попыток</span>
+              <span>{{ props.t('user.tests.attempts') }}</span>
               <strong>
                 {{ assignment.max_attempts === null ? assignment.attempts : `${assignment.attempts}/${assignment.max_attempts}` }}
               </strong>
             </div>
             <div>
-              <span>Последний результат</span>
+              <span>{{ props.t('user.tests.lastScore') }}</span>
               <strong>{{ assignment.last_score === null ? '—' : assignment.last_score + '%' }}</strong>
             </div>
           </div>
 
           <button class="primary-btn" :disabled="loadingQuestions" @click="startAssignedTest(assignment)">
-            {{ loadingQuestions ? 'Загрузка...' : 'Начать тест' }}
+            {{ loadingQuestions ? props.t('common.loading') : props.t('user.tests.start') }}
           </button>
         </article>
       </div>
 
       <article class="analytics-card" v-if="analytics">
-        <h3>Моя аналитика</h3>
+        <h3>{{ props.t('user.analytics.title') }}</h3>
         <div class="analytics-kpi">
           <div>
-            <span>Всего попыток</span>
+            <span>{{ props.t('user.analytics.totalAttempts') }}</span>
             <strong>{{ analytics.summary.total_attempts }}</strong>
           </div>
           <div>
-            <span>Средний балл</span>
+            <span>{{ props.t('user.analytics.average') }}</span>
             <strong>{{ analytics.summary.average_score }}%</strong>
           </div>
           <div>
-            <span>Лучший балл</span>
+            <span>{{ props.t('user.analytics.best') }}</span>
             <strong>{{ analytics.summary.best_score }}%</strong>
           </div>
         </div>
@@ -273,8 +565,8 @@ onMounted(async () => {
         <div class="history-list">
           <div v-for="attempt in analytics.attempts.slice(0, 10)" :key="attempt.attempt_id" class="history-item">
             <div>
-              <strong>{{ attempt.test_title || `Тест #${attempt.test_id}` }}</strong>
-              <p>{{ attempt.mode === 'training' ? 'Обучение' : 'Экзамен' }} · попытка {{ attempt.attempt_number }}</p>
+              <strong>{{ attempt.test_title || `#${attempt.test_id}` }}</strong>
+              <p>{{ modeLabel(attempt.mode) }} · {{ props.t('admin.assign.attempt', { n: attempt.attempt_number }) }}</p>
             </div>
             <div class="history-score">
               <span>{{ attempt.score }}%</span>
@@ -288,17 +580,17 @@ onMounted(async () => {
     <template v-else>
       <div class="runner-head">
         <div>
-          <p class="eyebrow">{{ activeTestMode === 'training' ? 'Training Mode' : 'Exam Mode' }}</p>
+          <p class="eyebrow">{{ modeLabel(activeTestMode) }}</p>
           <h2>{{ activeTestTitle }}</h2>
-          <p class="subtext">Проходной балл: {{ activePassScore }}%</p>
+          <p class="subtext">{{ props.t('user.runner.passScore', { score: activePassScore }) }}</p>
         </div>
-        <button class="secondary-btn" @click="exitTest">Выйти</button>
+        <button class="secondary-btn" @click="exitTest">{{ props.t('common.exit') }}</button>
       </div>
 
       <div class="progress-box">
         <div class="progress-text">
-          <span>Вопрос {{ currentIndex + 1 }} из {{ totalQuestions }}</span>
-          <span>Отвечено {{ answeredCount }} / {{ totalQuestions }} ({{ progress }}%)</span>
+          <span>{{ props.t('user.runner.questionProgress', { current: currentIndex + 1, total: totalQuestions }) }}</span>
+          <span>{{ props.t('user.runner.answerProgress', { answered: answeredCount, total: totalQuestions, progress }) }}</span>
         </div>
         <div class="progress-line">
           <div class="progress-fill" :style="{ width: `${progress}%` }"></div>
@@ -315,19 +607,33 @@ onMounted(async () => {
             v-for="answer in activeQuestion.answers"
             :key="answer.id"
             class="answer-btn"
-            :class="{ selected: answers[activeQuestion.id] === answer.id }"
+            :class="resolveAnswerVisual(answer)"
             @click="selectAnswer(activeQuestion.id, answer.id)"
           >
             {{ answer.answer_text }}
           </button>
         </div>
+
+        <div v-if="generalTrainingActive && activeFeedback" class="instant-feedback" :class="{ ok: activeFeedback.isCorrect, fail: !activeFeedback.isCorrect }">
+          <strong>{{ activeFeedback.isCorrect ? props.t('user.training.general.correct') : props.t('user.training.general.wrong') }}</strong>
+          <p v-if="!activeFeedback.isCorrect">{{ props.t('user.training.general.correctHint', { answer: activeFeedback.correctAnswer }) }}</p>
+          <p v-if="!activeFeedback.isCorrect && activeFeedback.explanation">
+            {{ props.t('user.result.explanation', { text: activeFeedback.explanation }) }}
+          </p>
+        </div>
       </article>
 
       <div class="runner-actions">
-        <button class="secondary-btn" :disabled="currentIndex === 0" @click="goPrev">Назад</button>
-        <button class="secondary-btn" :disabled="currentIndex === totalQuestions - 1" @click="goNext">Вперед</button>
+        <button class="secondary-btn" :disabled="currentIndex === 0" @click="goPrev">{{ props.t('common.back') }}</button>
+        <button class="secondary-btn" :disabled="currentIndex === totalQuestions - 1" @click="goNext">{{ props.t('common.next') }}</button>
         <button class="primary-btn" :disabled="submitting" @click="submitCurrentTest">
-          {{ submitting ? 'Отправка...' : 'Завершить тест' }}
+          {{
+            generalTrainingActive
+              ? props.t('user.training.general.finish')
+              : submitting
+                ? props.t('user.runner.submitting')
+                : props.t('user.runner.submit')
+          }}
         </button>
       </div>
     </template>
@@ -335,34 +641,34 @@ onMounted(async () => {
     <div v-if="result" class="result-overlay" @click.self="closeResult">
       <div class="result-modal">
         <h3 :class="{ ok: result.passed, fail: !result.passed }">
-          {{ result.passed ? 'Тест пройден' : 'Тест не пройден' }}
+          {{ generalTrainingActive ? props.t('user.training.general.resultTitle') : result.passed ? props.t('user.result.passed') : props.t('user.result.failed') }}
         </h3>
         <p class="score">{{ result.score }}%</p>
-        <p>Правильных ответов: {{ result.correct }} из {{ result.total }}</p>
-        <p>Проходной балл: {{ result.pass_score }}%</p>
+        <p>{{ props.t('user.result.correct', { correct: result.correct, total: result.total }) }}</p>
+        <p>{{ props.t('user.result.passScore', { score: result.pass_score }) }}</p>
 
         <div v-if="result.mode === 'training'" class="training-feedback">
-          <h4>Разбор ошибок</h4>
+          <h4>{{ props.t('user.result.errorReview') }}</h4>
           <div v-if="result.wrong_questions?.length">
             <article v-for="item in result.wrong_questions.slice(0, 6)" :key="item.question_id" class="wrong-item">
-              <strong>{{ item.category }} · Вопрос #{{ item.question_id }}</strong>
+              <strong>{{ props.t('user.result.questionLabel', { category: item.category, id: item.question_id }) }}</strong>
               <p>{{ item.question_text }}</p>
-              <p>Твой ответ: {{ item.selected_answer }}</p>
-              <p>Правильный ответ: {{ item.correct_answer }}</p>
-              <p v-if="item.explanation">Пояснение: {{ item.explanation }}</p>
+              <p>{{ props.t('user.result.yourAnswer', { answer: item.selected_answer }) }}</p>
+              <p>{{ props.t('user.result.correctAnswer', { answer: item.correct_answer }) }}</p>
+              <p v-if="item.explanation">{{ props.t('user.result.explanation', { text: item.explanation }) }}</p>
             </article>
           </div>
           <div v-else>
-            <p>Ошибок нет, отличный результат.</p>
+            <p>{{ props.t('user.result.noErrors') }}</p>
           </div>
 
-          <h4>Рекомендации</h4>
+          <h4>{{ props.t('user.result.recommendations') }}</h4>
           <ul>
             <li v-for="(rec, index) in result.recommendations || []" :key="index">{{ rec }}</li>
           </ul>
         </div>
 
-        <button class="primary-btn" @click="closeResult">Вернуться к тестам</button>
+        <button class="primary-btn" @click="closeResult">{{ props.t('user.result.backToTests') }}</button>
       </div>
     </div>
   </section>
@@ -417,6 +723,78 @@ onMounted(async () => {
 
 .profile-controls input {
   min-width: 240px;
+}
+
+.training-card {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid #d4e7ea;
+  border-radius: 20px;
+  padding: 18px;
+  box-shadow: 0 12px 28px rgba(11, 44, 53, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.training-card h3 {
+  margin: 6px 0;
+  font-size: 1.32rem;
+}
+
+.training-config-grid {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 12px;
+}
+
+.training-config-grid label,
+.categories-box {
+  border: 1px solid #dbe8eb;
+  border-radius: 12px;
+  padding: 10px;
+  background: #f8fcfd;
+}
+
+.training-config-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.training-config-grid span,
+.categories-box p {
+  margin: 0;
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #2f5159;
+  text-transform: uppercase;
+}
+
+.category-list {
+  margin-top: 8px;
+  max-height: 140px;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 6px;
+}
+
+.category-list.disabled {
+  opacity: 0.6;
+}
+
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.categories-box small {
+  display: block;
+  margin-top: 8px;
+  color: #4c6772;
 }
 
 .dashboard-head,
@@ -651,6 +1029,39 @@ h2 {
   box-shadow: 0 10px 20px rgba(13, 127, 139, 0.18);
 }
 
+.answer-btn.correctHighlight {
+  border-color: #1f9e63;
+  background: #edfdf4;
+}
+
+.answer-btn.wrongHighlight {
+  border-color: #c14056;
+  background: #fff1f3;
+}
+
+.instant-feedback {
+  margin-top: 12px;
+  border: 1px solid #d4e7ea;
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.instant-feedback.ok {
+  border-color: #bde4ca;
+  background: #f1fbf5;
+  color: #13663a;
+}
+
+.instant-feedback.fail {
+  border-color: #f1c9d0;
+  background: #fff7f8;
+  color: #8f2231;
+}
+
+.instant-feedback p {
+  margin: 6px 0 0;
+}
+
 .runner-actions {
   display: flex;
   gap: 10px;
@@ -751,6 +1162,16 @@ h2 {
   margin: 4px 0;
 }
 
+@media (max-width: 900px) {
+  .training-config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .category-list {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 768px) {
   .profile-panel,
   .profile-controls,
@@ -772,4 +1193,3 @@ h2 {
   }
 }
 </style>
-

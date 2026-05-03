@@ -1793,6 +1793,100 @@ async def get_categories():
     return {"categories": categories}
 
 
+@router.get("/training/questions")
+async def get_training_questions(
+    limit: int = Query(20, ge=1, le=100),
+    categories: Optional[List[str]] = Query(None),
+    categories_alt: Optional[List[str]] = Query(None, alias="categories[]"),
+):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    selected_categories: List[str] = []
+    raw_categories = (categories or []) + (categories_alt or [])
+    include_all_categories = False
+    if raw_categories:
+        for raw_category in raw_categories:
+            for category_part in str(raw_category or "").split(","):
+                category = category_part.strip()
+                if not category:
+                    continue
+
+                if category.lower() == "all":
+                    selected_categories = []
+                    include_all_categories = True
+                    break
+
+                if category not in selected_categories:
+                    selected_categories.append(category)
+
+            if include_all_categories:
+                break
+
+    query_params: List[Any] = []
+    where_clause = ""
+    if selected_categories:
+        placeholders = ",".join(["?"] * len(selected_categories))
+        where_clause = f"WHERE category IN ({placeholders})"
+        query_params.extend(selected_categories)
+
+    query_params.append(limit)
+    cursor.execute(
+        f"""
+        SELECT id, question_text, category, image_url
+        FROM questions
+        {where_clause}
+        ORDER BY RANDOM()
+        LIMIT ?
+        """,
+        tuple(query_params),
+    )
+
+    rows = cursor.fetchall()
+    result = []
+
+    for question_row in rows:
+        cursor.execute(
+            """
+            SELECT id, answer_text, is_correct, explanation
+            FROM answers
+            WHERE question_id = ?
+            ORDER BY id
+            """,
+            (question_row["id"],),
+        )
+
+        answers = [
+            {
+                "id": answer_row["id"],
+                "answer_text": answer_row["answer_text"],
+                "is_correct": bool(answer_row["is_correct"]),
+                "explanation": answer_row["explanation"] or "",
+            }
+            for answer_row in cursor.fetchall()
+        ]
+
+        random.shuffle(answers)
+
+        result.append(
+            {
+                "id": question_row["id"],
+                "question_text": question_row["question_text"],
+                "category": question_row["category"],
+                "image_url": question_row["image_url"],
+                "answers": answers,
+            }
+        )
+
+    conn.close()
+
+    return {
+        "questions": result,
+        "limit": limit,
+        "categories": selected_categories or ["all"],
+    }
+
+
 @router.get("/questions/{category}")
 async def get_questions(category: str, limit: int = 20):
     conn = get_db_connection()

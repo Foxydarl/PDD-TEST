@@ -57,6 +57,15 @@ function normalizeAssignment(item) {
   }
 }
 
+function shuffleArray(values) {
+  const copy = [...values]
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[copy[i], copy[j]] = [copy[j], copy[i]]
+  }
+  return copy
+}
+
 function normalizeAnalyticsPayload(payload = {}, fallbackUserId = '') {
   const attemptsRaw = payload?.attempts || []
   const attempts = attemptsRaw.map((attempt, index) => {
@@ -395,6 +404,61 @@ export async function fetchAdminAttemptDetails(token, attemptId) {
 export async function fetchMyTests(userId) {
   const { data } = await api.get(`/my/tests/${userId}`)
   return (data.tests || []).map(normalizeAssignment)
+}
+
+export async function fetchPublicCategories() {
+  const { data } = await api.get('/categories')
+  return data.categories || []
+}
+
+export async function fetchGeneralTrainingQuestions({ limit = 20, categories = [] } = {}) {
+  const parsedLimit = Math.max(1, Math.min(Number(limit) || 20, 100))
+  const categoryList = Array.isArray(categories)
+    ? categories
+        .map((item) => (item || '').toString().trim())
+        .filter(Boolean)
+        .filter((item, index, arr) => arr.indexOf(item) === index)
+    : []
+
+  try {
+    const { data } = await api.get('/training/questions', {
+      params: {
+        limit: parsedLimit,
+        categories: categoryList
+      }
+    })
+
+    return {
+      ...data,
+      questions: (data.questions || []).map(normalizeQuestion)
+    }
+  } catch (error) {
+    if (!isNotFound(error)) {
+      throw error
+    }
+
+    if (categoryList.length === 0 || categoryList.includes('all')) {
+      const { data } = await api.get('/questions/all', {
+        params: { limit: parsedLimit }
+      })
+      return {
+        questions: (data.questions || []).map(normalizeQuestion)
+      }
+    }
+
+    const perCategoryLimit = Math.max(1, Math.ceil(parsedLimit / categoryList.length))
+    const batches = await Promise.all(
+      categoryList.map(async (category) => {
+        const { data } = await api.get(`/questions/${encodeURIComponent(category)}`, {
+          params: { limit: perCategoryLimit }
+        })
+        return data.questions || []
+      })
+    )
+
+    const flattened = shuffleArray(batches.flat().map(normalizeQuestion)).slice(0, parsedLimit)
+    return { questions: flattened }
+  }
 }
 
 export async function fetchAssignedQuestions(assignmentId, userId) {

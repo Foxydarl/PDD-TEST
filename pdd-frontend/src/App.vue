@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { login, register } from './api/auth'
 import { API_BASE, adminLogin } from './api/pdd'
 import { pb } from './lib/pocketbase'
+import { DEFAULT_LANGUAGE, LANGUAGE_OPTIONS, getAccountLanguage, setAccountLanguage, translate } from './i18n'
 import AdminDashboard from './views/AdminDashboard.vue'
 import UserDashboard from './views/UserDashboard.vue'
 
@@ -17,8 +18,40 @@ const authError = ref('')
 
 const session = ref(null)
 
+const language = ref(DEFAULT_LANGUAGE)
+const settingsOpen = ref(false)
+
 const isAuthenticated = computed(() => Boolean(session.value))
-const roleLabel = computed(() => (session.value?.role === 'admin' ? 'Администратор' : 'Пользователь'))
+const roleLabel = computed(() => (session.value?.role === 'admin' ? t('app.role.admin') : t('app.role.user')))
+const languageOptions = computed(() =>
+  LANGUAGE_OPTIONS.map((item) => ({
+    value: item.value,
+    label: t(item.labelKey)
+  }))
+)
+
+function t(key, params = {}) {
+  return translate(language.value, key, params)
+}
+
+function getAccountIdBySession(nextSession) {
+  if (!nextSession) return ''
+  if (nextSession.role === 'admin') return 'admin'
+  return nextSession.userId || ''
+}
+
+function applyLanguageForSession(nextSession) {
+  const accountId = getAccountIdBySession(nextSession)
+  language.value = accountId ? getAccountLanguage(accountId) : DEFAULT_LANGUAGE
+}
+
+function setLanguage(nextLanguage) {
+  language.value = nextLanguage
+  const accountId = getAccountIdBySession(session.value)
+  if (accountId) {
+    setAccountLanguage(accountId, nextLanguage)
+  }
+}
 
 function createUserSession() {
   if (!pb.authStore.isValid || !pb.authStore.model) {
@@ -39,6 +72,7 @@ function hydrateSession() {
   if (savedAdmin) {
     try {
       session.value = JSON.parse(savedAdmin)
+      applyLanguageForSession(session.value)
       return
     } catch (error) {
       localStorage.removeItem(ADMIN_STORAGE_KEY)
@@ -46,6 +80,7 @@ function hydrateSession() {
   }
 
   session.value = createUserSession()
+  applyLanguageForSession(session.value)
 }
 
 function extractErrorMessage(error, fallback) {
@@ -72,13 +107,14 @@ async function handleAuth() {
   try {
     if (authMode.value === 'register') {
       if (!name.value.trim()) {
-        authError.value = 'Введите имя для регистрации'
+        authError.value = t('app.auth.registerNameRequired')
         return
       }
 
       await register(email.value.trim(), password.value, name.value)
       await login(email.value.trim(), password.value)
       session.value = createUserSession()
+      applyLanguageForSession(session.value)
       name.value = ''
       email.value = ''
       password.value = ''
@@ -94,23 +130,25 @@ async function handleAuth() {
         token: admin.token
       }
       localStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify(session.value))
+      applyLanguageForSession(session.value)
       email.value = ''
       password.value = ''
       return
     } catch (adminError) {
       const adminStatus = adminError?.response?.status
       if (![401, 403].includes(adminStatus)) {
-        throw new Error(`Админ API недоступен. Проверь backend: ${getBaseOrigin(API_BASE)}`)
+        throw new Error(t('app.adminUnavailable', { origin: getBaseOrigin(API_BASE) }))
       }
 
       await login(email.value.trim(), password.value)
       session.value = createUserSession()
+      applyLanguageForSession(session.value)
       name.value = ''
       email.value = ''
       password.value = ''
     }
   } catch (error) {
-    authError.value = extractErrorMessage(error, 'Ошибка авторизации')
+    authError.value = extractErrorMessage(error, t('app.auth.failed'))
   } finally {
     loading.value = false
   }
@@ -118,12 +156,14 @@ async function handleAuth() {
 
 function logout() {
   localStorage.removeItem(ADMIN_STORAGE_KEY)
+  settingsOpen.value = false
 
   if (session.value?.role !== 'admin') {
     pb.authStore.clear()
   }
 
   session.value = null
+  applyLanguageForSession(null)
 }
 
 function handleProfileUpdated(newName) {
@@ -144,29 +184,29 @@ onMounted(() => {
 
   <section v-if="!isAuthenticated" class="auth-layout">
     <article class="auth-side">
-      <p class="eyebrow">PDD Platform</p>
-      <h1>Интеллектуальная система тестов</h1>
+      <p class="eyebrow">{{ t('app.platform') }}</p>
+      <h1>{{ t('app.auth.title') }}</h1>
       <p>
-        Удобное пространство, где администратор создает персональные тесты, а пользователи проходят только назначенные задания.
+        {{ t('app.auth.subtitle') }}
       </p>
       <ul>
-        <li>Кастомные наборы вопросов</li>
-        <li>Назначение тестов по пользователям</li>
-        <li>Контроль прохождения и результатов</li>
+        <li>{{ t('app.auth.feature1') }}</li>
+        <li>{{ t('app.auth.feature2') }}</li>
+        <li>{{ t('app.auth.feature3') }}</li>
       </ul>
     </article>
 
     <article class="auth-card">
       <div class="auth-switch">
-        <button :class="{ active: authMode === 'login' }" @click="authMode = 'login'">Вход</button>
-        <button :class="{ active: authMode === 'register' }" @click="authMode = 'register'">Регистрация</button>
+        <button :class="{ active: authMode === 'login' }" @click="authMode = 'login'">{{ t('app.auth.login') }}</button>
+        <button :class="{ active: authMode === 'register' }" @click="authMode = 'register'">{{ t('app.auth.register') }}</button>
       </div>
 
-      <h2>{{ authMode === 'login' ? 'Вход в систему' : 'Создание аккаунта' }}</h2>
+      <h2>{{ authMode === 'login' ? t('app.auth.loginTitle') : t('app.auth.registerTitle') }}</h2>
 
       <label v-if="authMode === 'register'">
-        <span>Имя</span>
-        <input v-model="name" type="text" placeholder="Твое имя" autocomplete="name" />
+        <span>{{ t('app.auth.name') }}</span>
+        <input v-model="name" type="text" :placeholder="t('app.auth.namePlaceholder')" autocomplete="name" />
       </label>
 
       <label>
@@ -175,14 +215,14 @@ onMounted(() => {
       </label>
 
       <label>
-        <span>Пароль</span>
+        <span>{{ t('app.auth.password') }}</span>
         <input v-model="password" type="password" placeholder="********" autocomplete="current-password" />
       </label>
 
       <p v-if="authError" class="auth-error">{{ authError }}</p>
 
       <button class="auth-submit" :disabled="loading" @click="handleAuth">
-        {{ loading ? 'Подожди...' : authMode === 'login' ? 'Войти' : 'Зарегистрироваться' }}
+        {{ loading ? t('app.auth.wait') : authMode === 'login' ? t('app.auth.signIn') : t('app.auth.signUp') }}
       </button>
     </article>
   </section>
@@ -190,19 +230,48 @@ onMounted(() => {
   <section v-else class="app-shell">
     <header class="shell-header">
       <div>
-        <p class="eyebrow">PDD Dashboard</p>
+        <p class="eyebrow">{{ t('app.dashboard') }}</p>
         <h1>{{ roleLabel }}</h1>
       </div>
 
       <div class="shell-user">
         <p>{{ session.userName ? `${session.userName} — ${session.email}` : session.email }}</p>
-        <button class="logout-btn" @click="logout">Выйти</button>
+
+        <div class="shell-actions">
+          <button class="settings-btn" @click="settingsOpen = !settingsOpen">
+            {{ t('app.settings.open') }}
+          </button>
+          <button class="logout-btn" @click="logout">{{ t('app.logout') }}</button>
+        </div>
+
+        <div v-if="settingsOpen" class="settings-popover">
+          <strong>{{ t('app.settings.title') }}</strong>
+          <label>
+            <span>{{ t('app.settings.language') }}</span>
+            <select :value="language" @change="setLanguage($event.target.value)">
+              <option v-for="option in languageOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+        </div>
       </div>
     </header>
 
     <main class="shell-content">
-      <AdminDashboard v-if="session.role === 'admin'" :session="session" />
-      <UserDashboard v-else :session="session" @profile-updated="handleProfileUpdated" />
+      <AdminDashboard
+        v-if="session.role === 'admin'"
+        :session="session"
+        :language="language"
+        :t="t"
+      />
+      <UserDashboard
+        v-else
+        :session="session"
+        :language="language"
+        :t="t"
+        @profile-updated="handleProfileUpdated"
+      />
     </main>
   </section>
 </template>
@@ -355,7 +424,8 @@ onMounted(() => {
 }
 
 .auth-submit,
-.logout-btn {
+.logout-btn,
+.settings-btn {
   margin-top: 16px;
   border: none;
   border-radius: 13px;
@@ -411,6 +481,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+  position: relative;
 }
 
 .shell-user p {
@@ -419,14 +490,63 @@ onMounted(() => {
   color: #244652;
 }
 
-.logout-btn {
+.shell-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.logout-btn,
+.settings-btn {
   margin-top: 0;
   background: #e7f4f6;
   color: #0d4f5d;
 }
 
-.logout-btn:hover {
+.logout-btn:hover,
+.settings-btn:hover {
   transform: translateY(-1px);
+}
+
+.settings-popover {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  width: 280px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #cfe2e7;
+  border-radius: 14px;
+  box-shadow: 0 18px 28px rgba(14, 46, 58, 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 40;
+}
+
+.settings-popover strong {
+  color: #1d4854;
+}
+
+.settings-popover label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-popover span {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #41626f;
+  font-weight: 700;
+}
+
+.settings-popover select {
+  border: 1px solid #c4d9de;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  background: #fcfeff;
 }
 
 .shell-content {
@@ -451,6 +571,11 @@ onMounted(() => {
     align-items: flex-start;
   }
 
+  .settings-popover {
+    position: static;
+    width: 100%;
+  }
+
   .auth-side,
   .auth-card {
     border-radius: 20px;
@@ -458,4 +583,3 @@ onMounted(() => {
   }
 }
 </style>
-

@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import {
   assignTestToUser,
@@ -21,10 +21,19 @@ const props = defineProps({
   session: {
     type: Object,
     required: true
+  },
+  language: {
+    type: String,
+    required: true
+  },
+  t: {
+    type: Function,
+    required: true
   }
 })
 
 const token = computed(() => props.session.token)
+const languageTick = computed(() => props.language)
 
 const activeTab = ref('assignments')
 const loading = ref(false)
@@ -90,7 +99,11 @@ function showFlash(type, text) {
 }
 
 function getErrorText(error) {
-  return error?.response?.data?.detail || error?.message || 'Неизвестная ошибка'
+  return error?.response?.data?.detail || error?.message || props.t('common.unknownError')
+}
+
+function modeLabel(mode) {
+  return mode === 'training' ? props.t('mode.training') : props.t('mode.exam')
 }
 
 function resetTestEditor() {
@@ -219,40 +232,37 @@ async function loadAllData() {
     if (testsResult.status === 'fulfilled') {
       tests.value = testsResult.value
     } else {
-      errors.push(`Тесты: ${getErrorText(testsResult.reason)}`)
+      errors.push(`${props.t('admin.tab.tests')}: ${getErrorText(testsResult.reason)}`)
     }
 
     if (usersResult.status === 'fulfilled') {
       users.value = usersResult.value
     } else {
-      errors.push(`Пользователи: ${getErrorText(usersResult.reason)}`)
+      errors.push(`${props.t('admin.assign.user')}: ${getErrorText(usersResult.reason)}`)
     }
 
     if (assignmentsResult.status === 'fulfilled') {
       assignments.value = assignmentsResult.value
     } else {
-      errors.push(`Назначения: ${getErrorText(assignmentsResult.reason)}`)
+      errors.push(`${props.t('admin.tab.assignments')}: ${getErrorText(assignmentsResult.reason)}`)
     }
 
     if (questionsResult.status === 'fulfilled') {
       questions.value = questionsResult.value
     } else {
-      errors.push(`Вопросы: ${getErrorText(questionsResult.reason)}`)
+      errors.push(`${props.t('admin.tab.questions')}: ${getErrorText(questionsResult.reason)}`)
     }
 
     if (categoriesResult.status === 'fulfilled') {
       categories.value = categoriesResult.value
     } else {
-      errors.push(`Категории: ${getErrorText(categoriesResult.reason)}`)
+      errors.push(`${props.t('user.training.general.categories')}: ${getErrorText(categoriesResult.reason)}`)
     }
 
     users.value.forEach((user) => ensureAssignConfig(user.id))
 
     if (errors.length) {
-      showFlash(
-        'error',
-        `${errors.join(' | ')}. Проверь, что запущен актуальный backend (sqlite_query_service) для этой версии фронтенда.`
-      )
+      showFlash('error', props.t('admin.flash.backendHint', { errors: errors.join(' | ') }))
     }
   } finally {
     loading.value = false
@@ -273,7 +283,7 @@ async function openTestForEdit(testId) {
       question_ids: test.question_ids || []
     }
     activeTab.value = 'tests'
-    showFlash('success', `Тест "${test.title}" загружен для редактирования`)
+    showFlash('success', props.t('admin.flash.testsLoaded', { title: test.title }))
   } catch (error) {
     showFlash('error', getErrorText(error))
   }
@@ -281,12 +291,12 @@ async function openTestForEdit(testId) {
 
 async function saveTest() {
   if (!testEditor.value.title.trim()) {
-    showFlash('error', 'Укажи название теста')
+    showFlash('error', props.t('admin.flash.testNameRequired'))
     return
   }
 
   if (testEditor.value.question_ids.length < 2) {
-    showFlash('error', 'Выбери минимум 2 вопроса')
+    showFlash('error', props.t('admin.flash.minQuestions'))
     return
   }
 
@@ -304,10 +314,10 @@ async function saveTest() {
 
     if (testEditor.value.id) {
       await updateAdminTest(token.value, testEditor.value.id, payload)
-      showFlash('success', 'Тест обновлен')
+      showFlash('success', props.t('admin.flash.testUpdated'))
     } else {
       await createAdminTest(token.value, payload)
-      showFlash('success', 'Тест создан')
+      showFlash('success', props.t('admin.flash.testCreated'))
     }
 
     resetTestEditor()
@@ -321,23 +331,23 @@ async function saveTest() {
 
 async function saveQuestion() {
   if (!questionEditor.value.question_text.trim()) {
-    showFlash('error', 'Введите текст вопроса')
+    showFlash('error', props.t('admin.flash.questionTextRequired'))
     return
   }
 
   if (!questionEditor.value.category.trim()) {
-    showFlash('error', 'Укажите категорию')
+    showFlash('error', props.t('admin.flash.questionCategoryRequired'))
     return
   }
 
   const validAnswers = questionEditor.value.answers.filter((answer) => answer.answer_text.trim())
   if (validAnswers.length < 2) {
-    showFlash('error', 'Добавьте минимум 2 варианта ответа')
+    showFlash('error', props.t('admin.flash.minAnswers'))
     return
   }
 
   if (validAnswers.filter((answer) => answer.is_correct).length !== 1) {
-    showFlash('error', 'Должен быть ровно один правильный ответ')
+    showFlash('error', props.t('admin.flash.oneCorrect'))
     return
   }
 
@@ -356,10 +366,10 @@ async function saveQuestion() {
 
     if (questionEditor.value.id) {
       await updateAdminQuestion(token.value, questionEditor.value.id, payload)
-      showFlash('success', 'Вопрос обновлен')
+      showFlash('success', props.t('admin.flash.questionUpdated'))
     } else {
       await createAdminQuestion(token.value, payload)
-      showFlash('success', 'Вопрос создан')
+      showFlash('success', props.t('admin.flash.questionCreated'))
     }
 
     resetQuestionEditor()
@@ -396,12 +406,12 @@ function editQuestion(question) {
 }
 
 async function removeQuestion(questionId) {
-  const confirmed = window.confirm('Удалить этот вопрос? Он будет убран и из связанных тестов.')
+  const confirmed = window.confirm(props.t('admin.flash.deleteQuestionConfirm'))
   if (!confirmed) return
 
   try {
     await deleteAdminQuestion(token.value, questionId)
-    showFlash('success', 'Вопрос удален')
+    showFlash('success', props.t('admin.flash.questionDeleted'))
     if (questionEditor.value.id === questionId) {
       resetQuestionEditor()
     }
@@ -417,7 +427,7 @@ async function assignForUser(user) {
   const testId = Number(config.testId)
 
   if (!testId) {
-    showFlash('error', 'Выбери тест перед назначением')
+    showFlash('error', props.t('admin.flash.selectTestBeforeAssign'))
     return
   }
 
@@ -429,7 +439,7 @@ async function assignForUser(user) {
       user_email: user.email,
       mode: config.mode
     })
-    showFlash('success', `Тест назначен пользователю ${user.email}`)
+    showFlash('success', props.t('admin.flash.testAssigned', { email: user.email }))
     await loadAllData()
   } catch (error) {
     showFlash('error', getErrorText(error))
@@ -453,7 +463,7 @@ async function openUserAnalytics(user) {
 
 async function openAttemptDetails(attempt) {
   if (!attempt?.has_review_details) {
-    showFlash('error', 'Подробный разбор попытки недоступен на текущем backend')
+    showFlash('error', props.t('admin.flash.noAttemptDetails'))
     return
   }
 
@@ -489,14 +499,14 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="admin-root">
+  <section class="admin-root" :data-language="languageTick">
     <header class="page-head">
       <div>
-        <p class="eyebrow">Admin Workspace</p>
-        <h2>Управление тестами, вопросами и аналитикой</h2>
+        <p class="eyebrow">{{ props.t('admin.workspace') }}</p>
+        <h2>{{ props.t('admin.title') }}</h2>
       </div>
       <button class="ghost-btn" :disabled="loading" @click="loadAllData">
-        {{ loading ? 'Загрузка...' : 'Обновить данные' }}
+        {{ loading ? props.t('common.loading') : props.t('admin.refresh') }}
       </button>
     </header>
 
@@ -505,38 +515,38 @@ onMounted(async () => {
     </div>
 
     <nav class="tabs">
-      <button :class="{ active: activeTab === 'assignments' }" @click="activeTab = 'assignments'">Назначения</button>
-      <button :class="{ active: activeTab === 'tests' }" @click="activeTab = 'tests'">Тесты</button>
-      <button :class="{ active: activeTab === 'questions' }" @click="activeTab = 'questions'">Вопросы</button>
+      <button :class="{ active: activeTab === 'assignments' }" @click="activeTab = 'assignments'">{{ props.t('admin.tab.assignments') }}</button>
+      <button :class="{ active: activeTab === 'tests' }" @click="activeTab = 'tests'">{{ props.t('admin.tab.tests') }}</button>
+      <button :class="{ active: activeTab === 'questions' }" @click="activeTab = 'questions'">{{ props.t('admin.tab.questions') }}</button>
     </nav>
 
     <section v-if="activeTab === 'assignments'" class="panel">
       <div class="panel-head">
-        <h3>Назначение тестов и режимов</h3>
-        <input v-model="userSearch" type="text" placeholder="Поиск по email или имени" />
+        <h3>{{ props.t('admin.assign.head') }}</h3>
+        <input v-model="userSearch" type="text" :placeholder="props.t('admin.assign.search')" />
       </div>
 
       <div class="users-table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Пользователь</th>
-              <th>ID</th>
-              <th>Тест</th>
-              <th>Режим</th>
-              <th>Действия</th>
+              <th>{{ props.t('admin.assign.user') }}</th>
+              <th>{{ props.t('admin.assign.userId') }}</th>
+              <th>{{ props.t('admin.assign.test') }}</th>
+              <th>{{ props.t('admin.assign.mode') }}</th>
+              <th>{{ props.t('admin.assign.actions') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="user in users" :key="user.id">
               <td>
-                <strong>{{ user.name || 'Без имени' }}</strong>
+                <strong>{{ user.name || '—' }}</strong>
                 <div>{{ user.email }}</div>
               </td>
               <td class="mono">{{ user.id }}</td>
               <td>
                 <select v-model="assignConfigByUser[user.id].testId" @focus="ensureAssignConfig(user.id)">
-                  <option disabled value="">Выбери тест</option>
+                  <option disabled value="">{{ props.t('admin.assign.selectTest') }}</option>
                   <option v-for="test in tests" :key="test.id" :value="test.id">
                     {{ test.title }}
                   </option>
@@ -544,16 +554,16 @@ onMounted(async () => {
               </td>
               <td>
                 <select v-model="assignConfigByUser[user.id].mode" @focus="ensureAssignConfig(user.id)">
-                  <option value="exam">Экзамен (1 попытка)</option>
-                  <option value="training">Обучение (с аналитикой)</option>
+                  <option value="exam">{{ props.t('admin.assign.modeExam') }}</option>
+                  <option value="training">{{ props.t('admin.assign.modeTraining') }}</option>
                 </select>
               </td>
               <td>
                 <div class="inline-actions">
                   <button class="solid-btn" :disabled="assigningUserId === user.id" @click="assignForUser(user)">
-                    {{ assigningUserId === user.id ? '...' : 'Назначить' }}
+                    {{ assigningUserId === user.id ? '...' : props.t('admin.assign.assign') }}
                   </button>
-                  <button class="ghost-btn" @click="openUserAnalytics(user)">Аналитика</button>
+                  <button class="ghost-btn" @click="openUserAnalytics(user)">{{ props.t('admin.assign.analytics') }}</button>
                 </div>
               </td>
             </tr>
@@ -563,25 +573,25 @@ onMounted(async () => {
 
       <div class="sub-grid">
         <article class="sub-card">
-          <h4>Последние назначения</h4>
+          <h4>{{ props.t('admin.assign.latest') }}</h4>
           <div class="assignments-list">
             <div v-for="assignment in assignments.slice(0, 12)" :key="assignment.id" class="assignment-item">
               <div>
                 <strong>{{ assignment.user_email }}</strong>
-                <p>{{ assignment.test_title }} · {{ assignment.mode === 'training' ? 'Обучение' : 'Экзамен' }}</p>
+                <p>{{ assignment.test_title }} · {{ modeLabel(assignment.mode) }}</p>
               </div>
               <div class="assignment-score">
                 <span>{{ assignment.last_score === null ? '—' : `${assignment.last_score}%` }}</span>
-                <small>попыток: {{ assignment.attempts }}</small>
+                <small>{{ props.t('admin.assign.attempts') }}: {{ assignment.attempts }}</small>
               </div>
             </div>
           </div>
         </article>
 
         <article class="sub-card">
-          <h4>Аналитика пользователя</h4>
-          <p v-if="!selectedUserAnalytics">Выбери пользователя в таблице, чтобы посмотреть историю прохождений.</p>
-          <p v-else-if="analyticsLoading">Загрузка аналитики...</p>
+          <h4>{{ props.t('admin.assign.userAnalytics') }}</h4>
+          <p v-if="!selectedUserAnalytics">{{ props.t('admin.assign.pickUserAnalytics') }}</p>
+          <p v-else-if="analyticsLoading">{{ props.t('admin.assign.loadingAnalytics') }}</p>
           <template v-else-if="selectedUserAnalyticsData">
             <div class="analytics-head">
               <strong>{{ selectedUserAnalytics.name || selectedUserAnalytics.email }}</strong>
@@ -589,23 +599,23 @@ onMounted(async () => {
             </div>
             <div class="analytics-kpi">
               <div>
-                <span>Попыток</span>
+                <span>{{ props.t('admin.assign.attempts') }}</span>
                 <strong>{{ selectedUserAnalyticsData.summary.total_attempts }}</strong>
               </div>
               <div>
-                <span>Средний балл</span>
+                <span>{{ props.t('admin.assign.average') }}</span>
                 <strong>{{ selectedUserAnalyticsData.summary.average_score }}%</strong>
               </div>
               <div>
-                <span>Лучший балл</span>
+                <span>{{ props.t('admin.assign.best') }}</span>
                 <strong>{{ selectedUserAnalyticsData.summary.best_score }}%</strong>
               </div>
             </div>
             <div class="attempts-history">
               <div v-for="attempt in selectedUserAnalyticsData.attempts.slice(0, 8)" :key="attempt.attempt_id" class="attempt-item">
                 <div>
-                  <strong>{{ attempt.test_title || `Тест #${attempt.test_id}` }}</strong>
-                  <p>{{ attempt.mode === 'training' ? 'Обучение' : 'Экзамен' }} · попытка {{ attempt.attempt_number }}</p>
+                  <strong>{{ attempt.test_title || `Test #${attempt.test_id}` }}</strong>
+                  <p>{{ modeLabel(attempt.mode) }} · {{ props.t('admin.assign.attempt', { n: attempt.attempt_number }) }}</p>
                 </div>
                 <div class="attempt-score">
                   <span>{{ attempt.score }}%</span>
@@ -618,9 +628,9 @@ onMounted(async () => {
                     :disabled="attemptDetailsLoading"
                     @click="openAttemptDetails(attempt)"
                   >
-                    {{ attemptDetailsLoading ? 'Загрузка...' : 'Разбор' }}
+                    {{ attemptDetailsLoading ? props.t('common.loading') : props.t('admin.assign.analysis') }}
                   </button>
-                  <button v-else class="ghost-btn" disabled>Нет разбора</button>
+                  <button v-else class="ghost-btn" disabled>{{ props.t('admin.assign.noAnalysis') }}</button>
                 </div>
               </div>
             </div>
@@ -631,61 +641,61 @@ onMounted(async () => {
 
     <section v-if="activeTab === 'tests'" class="panel">
       <div class="panel-head">
-        <h3>{{ testEditor.id ? 'Редактирование теста' : 'Создание теста' }}</h3>
-        <button class="ghost-btn" @click="resetTestEditor">Новый тест</button>
+        <h3>{{ testEditor.id ? props.t('admin.tests.editing') : props.t('admin.tests.creating') }}</h3>
+        <button class="ghost-btn" @click="resetTestEditor">{{ props.t('admin.tests.new') }}</button>
       </div>
 
       <div class="editor-grid">
         <article class="editor-card">
           <label>
-            <span>Название</span>
-            <input v-model="testEditor.title" type="text" placeholder="Например: Экзамен по знакам" />
+            <span>{{ props.t('admin.tests.name') }}</span>
+            <input v-model="testEditor.title" type="text" :placeholder="props.t('admin.tests.namePlaceholder')" />
           </label>
 
           <label>
-            <span>Описание</span>
-            <textarea v-model="testEditor.description" rows="2" placeholder="Коротко опиши цель теста"></textarea>
+            <span>{{ props.t('admin.tests.description') }}</span>
+            <textarea v-model="testEditor.description" rows="2" :placeholder="props.t('admin.tests.descriptionPlaceholder')"></textarea>
           </label>
 
           <div class="inline-fields">
             <label>
-              <span>Лимит вопросов</span>
+              <span>{{ props.t('admin.tests.limit') }}</span>
               <input v-model.number="testEditor.question_limit" type="number" min="1" />
             </label>
             <label>
-              <span>Проходной балл (%)</span>
+              <span>{{ props.t('admin.tests.passScore') }}</span>
               <input v-model.number="testEditor.pass_score" type="number" min="0" max="100" />
             </label>
           </div>
 
           <label class="checkbox">
             <input v-model="testEditor.randomize_questions" type="checkbox" />
-            <span>Рандомизировать порядок вопросов</span>
+            <span>{{ props.t('admin.tests.randomQuestions') }}</span>
           </label>
 
           <label class="checkbox">
             <input v-model="testEditor.randomize_answers" type="checkbox" />
-            <span>Рандомизировать варианты ответов</span>
+            <span>{{ props.t('admin.tests.randomAnswers') }}</span>
           </label>
 
-          <p>Выбрано вопросов: <strong>{{ selectedQuestionCount }}</strong></p>
+          <p>{{ props.t('admin.tests.selectedCount', { count: selectedQuestionCount }) }}</p>
           <button class="solid-btn" :disabled="saving" @click="saveTest">
-            {{ saving ? 'Сохранение...' : testEditor.id ? 'Сохранить изменения' : 'Создать тест' }}
+            {{ saving ? props.t('common.loading') : testEditor.id ? props.t('admin.tests.save') : props.t('admin.tests.create') }}
           </button>
         </article>
 
         <article class="editor-card">
           <div class="panel-head compact">
-            <h4>Банк вопросов для теста</h4>
+            <h4>{{ props.t('admin.tests.bank') }}</h4>
           </div>
           <div class="filters">
             <select v-model="testFilterCategory">
-              <option value="all">Все категории</option>
+              <option value="all">{{ props.t('user.training.general.allCategories') }}</option>
               <option v-for="category in availableCategories" :key="category" :value="category">
                 {{ category }}
               </option>
             </select>
-            <input v-model="testFilterQuery" type="text" placeholder="Поиск вопроса" />
+            <input v-model="testFilterQuery" type="text" :placeholder="props.t('admin.tests.searchQuestion')" />
           </div>
 
           <div class="question-list">
@@ -706,19 +716,19 @@ onMounted(async () => {
       </div>
 
       <article class="tests-list-card">
-        <h4>Существующие тесты</h4>
+        <h4>{{ props.t('admin.tests.existing') }}</h4>
         <div class="tests-list">
           <div v-for="test in tests" :key="test.id" class="test-item">
             <div>
               <strong>{{ test.title }}</strong>
-              <p>{{ test.description || 'Без описания' }}</p>
+              <p>{{ test.description || props.t('user.tests.noDescription') }}</p>
               <small>
-                {{ test.is_legacy ? 'Системный' : 'Кастомный' }} ·
-                {{ test.question_count }} вопросов ·
-                проходной {{ test.pass_score }}%
+                {{ test.is_legacy ? props.t('admin.tests.system') : props.t('admin.tests.custom') }} ·
+                {{ props.t('admin.tests.questionsCount', { count: test.question_count }) }} ·
+                {{ props.t('admin.tests.passPercent', { score: test.pass_score }) }}
               </small>
             </div>
-            <button class="ghost-btn" @click="openTestForEdit(test.id)">Редактировать</button>
+            <button class="ghost-btn" @click="openTestForEdit(test.id)">{{ props.t('admin.tests.edit') }}</button>
           </div>
         </div>
       </article>
@@ -726,43 +736,43 @@ onMounted(async () => {
 
     <section v-if="activeTab === 'questions'" class="panel">
       <div class="panel-head">
-        <h3>{{ questionEditor.id ? 'Редактирование вопроса' : 'Создание вопроса' }}</h3>
-        <button class="ghost-btn" @click="resetQuestionEditor">Новый вопрос</button>
+        <h3>{{ questionEditor.id ? props.t('admin.questions.editing') : props.t('admin.questions.creating') }}</h3>
+        <button class="ghost-btn" @click="resetQuestionEditor">{{ props.t('admin.questions.new') }}</button>
       </div>
 
       <div class="editor-grid">
         <article class="editor-card">
           <label>
-            <span>Текст вопроса</span>
-            <textarea v-model="questionEditor.question_text" rows="3" placeholder="Введите вопрос"></textarea>
+            <span>{{ props.t('admin.questions.text') }}</span>
+            <textarea v-model="questionEditor.question_text" rows="3" :placeholder="props.t('admin.questions.textPlaceholder')"></textarea>
           </label>
 
           <label>
-            <span>Категория</span>
-            <input v-model="questionEditor.category" type="text" placeholder="Например: дорожные знаки" list="categories-list" />
+            <span>{{ props.t('admin.questions.category') }}</span>
+            <input v-model="questionEditor.category" type="text" :placeholder="props.t('admin.questions.categoryPlaceholder')" list="categories-list" />
             <datalist id="categories-list">
               <option v-for="category in availableCategories" :key="category" :value="category"></option>
             </datalist>
           </label>
 
           <label>
-            <span>Ссылка на изображение (опционально)</span>
-            <input v-model="questionEditor.image_url" type="text" placeholder="https://..." />
+            <span>{{ props.t('admin.questions.image') }}</span>
+            <input v-model="questionEditor.image_url" type="text" :placeholder="props.t('admin.questions.imagePlaceholder')" />
           </label>
 
           <div class="answers-editor">
             <div v-for="(answer, index) in questionEditor.answers" :key="index" class="answer-row">
               <input type="radio" name="correct-answer" :checked="answer.is_correct" @change="setCorrectAnswer(index)" />
-              <input v-model="answer.answer_text" type="text" placeholder="Вариант ответа" />
-              <input v-model="answer.explanation" type="text" placeholder="Пояснение (опционально)" />
+              <input v-model="answer.answer_text" type="text" :placeholder="props.t('admin.questions.answerPlaceholder')" />
+              <input v-model="answer.explanation" type="text" :placeholder="props.t('admin.questions.explanationPlaceholder')" />
               <button class="danger-btn" type="button" @click="removeAnswerOption(index)">×</button>
             </div>
           </div>
 
           <div class="inline-actions">
-            <button class="ghost-btn" type="button" @click="addAnswerOption">Добавить ответ</button>
+            <button class="ghost-btn" type="button" @click="addAnswerOption">{{ props.t('admin.questions.addAnswer') }}</button>
             <button class="solid-btn" type="button" :disabled="saving" @click="saveQuestion">
-              {{ saving ? 'Сохранение...' : questionEditor.id ? 'Сохранить вопрос' : 'Создать вопрос' }}
+              {{ saving ? props.t('common.loading') : questionEditor.id ? props.t('admin.questions.save') : props.t('admin.questions.create') }}
             </button>
           </div>
         </article>
@@ -770,12 +780,12 @@ onMounted(async () => {
         <article class="editor-card">
           <div class="filters">
             <select v-model="questionFilterCategory">
-              <option value="all">Все категории</option>
+              <option value="all">{{ props.t('user.training.general.allCategories') }}</option>
               <option v-for="category in availableCategories" :key="category" :value="category">
                 {{ category }}
               </option>
             </select>
-            <input v-model="questionFilterQuery" type="text" placeholder="Поиск вопроса" />
+            <input v-model="questionFilterQuery" type="text" :placeholder="props.t('admin.tests.searchQuestion')" />
           </div>
 
           <div class="question-list">
@@ -783,11 +793,11 @@ onMounted(async () => {
               <div>
                 <strong>#{{ question.id }} · {{ question.category }}</strong>
                 <p>{{ question.question_text }}</p>
-                <small>{{ question.answers?.length || question.answers_count || 0 }} вариантов ответа</small>
+                <small>{{ props.t('admin.questions.answersCount', { count: question.answers?.length || question.answers_count || 0 }) }}</small>
               </div>
               <div class="inline-actions">
-                <button class="ghost-btn" @click="editQuestion(question)">Изменить</button>
-                <button class="danger-btn" @click="removeQuestion(question.id)">Удалить</button>
+                <button class="ghost-btn" @click="editQuestion(question)">{{ props.t('admin.questions.change') }}</button>
+                <button class="danger-btn" @click="removeQuestion(question.id)">{{ props.t('admin.questions.delete') }}</button>
               </div>
             </div>
           </div>
@@ -799,27 +809,27 @@ onMounted(async () => {
       <div class="review-modal">
         <div class="review-head">
           <div>
-            <h3>{{ selectedAttempt.test_title || `Тест #${selectedAttempt.test_id}` }}</h3>
+            <h3>{{ selectedAttempt.test_title || `Test #${selectedAttempt.test_id}` }}</h3>
             <p>
-              {{ selectedAttempt.mode === 'training' ? 'Обучение' : 'Экзамен' }}
-              · попытка {{ selectedAttempt.attempt_number }}
-              · результат {{ selectedAttempt.score }}%
+              {{ modeLabel(selectedAttempt.mode) }}
+              · {{ props.t('admin.assign.attempt', { n: selectedAttempt.attempt_number }) }}
+              · {{ selectedAttempt.score }}%
             </p>
           </div>
-          <button class="ghost-btn" @click="closeAttemptDetails">Закрыть</button>
+          <button class="ghost-btn" @click="closeAttemptDetails">{{ props.t('admin.review.close') }}</button>
         </div>
 
         <div class="review-summary">
           <div>
-            <span>Правильных</span>
+            <span>{{ props.t('admin.review.correct') }}</span>
             <strong>{{ selectedAttempt.correct_answers }} / {{ selectedAttempt.total_questions }}</strong>
           </div>
           <div>
-            <span>Ошибок</span>
+            <span>{{ props.t('admin.review.wrong') }}</span>
             <strong>{{ selectedAttempt.wrong_answers }}</strong>
           </div>
           <div>
-            <span>Проходной балл</span>
+            <span>{{ props.t('admin.review.passScore') }}</span>
             <strong>{{ selectedAttempt.pass_score }}%</strong>
           </div>
         </div>
@@ -833,10 +843,10 @@ onMounted(async () => {
           >
             <p class="review-category">{{ item.category }}</p>
             <h4>#{{ item.question_id }} · {{ item.question_text }}</h4>
-            <p><strong>Ответ пользователя:</strong> {{ item.selected_answer_text }}</p>
-            <p><strong>Правильный ответ:</strong> {{ item.correct_answer_text }}</p>
-            <p v-if="!item.is_correct" class="review-status">Ошибка</p>
-            <p v-else class="review-status success">Верно</p>
+            <p><strong>{{ props.t('admin.review.userAnswer') }}</strong> {{ item.selected_answer_text }}</p>
+            <p><strong>{{ props.t('admin.review.correctAnswer') }}</strong> {{ item.correct_answer_text }}</p>
+            <p v-if="!item.is_correct" class="review-status">{{ props.t('admin.review.error') }}</p>
+            <p v-else class="review-status success">{{ props.t('admin.review.success') }}</p>
           </article>
         </div>
       </div>
@@ -1381,4 +1391,3 @@ th {
   }
 }
 </style>
-
