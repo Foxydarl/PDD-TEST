@@ -368,24 +368,24 @@ def _build_recommendations(category_stats: List[dict], wrong_questions: List[dic
     recommendations: List[str] = []
 
     if not wrong_questions:
-        recommendations.append("РћС€РёР±РѕРє РЅРµС‚. РњРѕР¶РЅРѕ РїРµСЂРµС…РѕРґРёС‚СЊ Рє Р±РѕР»РµРµ СЃР»РѕР¶РЅС‹Рј С‚РµСЃС‚Р°Рј.")
+        recommendations.append("Ошибок нет. Можно переходить к более сложным тестам.")
         return recommendations
 
     weak_categories = [item for item in category_stats if item["wrong"] > 0]
     if weak_categories:
         top = weak_categories[0]
         recommendations.append(
-            f"РЎС„РѕРєСѓСЃРёСЂСѓР№СЃСЏ РЅР° РєР°С‚РµРіРѕСЂРёРё '{top['category']}' вЂ” Р·РґРµСЃСЊ Р±РѕР»СЊС€Рµ РІСЃРµРіРѕ РѕС€РёР±РѕРє ({top['wrong']})."
+            f"Сфокусируйся на категории '{top['category']}' - здесь больше всего ошибок ({top['wrong']})."
         )
 
     if len(weak_categories) > 1:
         second = weak_categories[1]
         recommendations.append(
-            f"РџРѕСЃР»Рµ СЌС‚РѕРіРѕ РїРѕРІС‚РѕСЂРё РєР°С‚РµРіРѕСЂРёСЋ '{second['category']}' (РѕС€РёР±РѕРє: {second['wrong']})."
+            f"После этого повтори категорию '{second['category']}' (ошибок: {second['wrong']})."
         )
 
     recommendations.append(
-        "Р Р°Р·Р±РµСЂРё РїРѕСЏСЃРЅРµРЅРёСЏ Рє РѕС€РёР±РєР°Рј Рё РїСЂРѕР№РґРё С‚РµСЃС‚ РµС‰Рµ СЂР°Р· РІ СЂРµР¶РёРјРµ РѕР±СѓС‡РµРЅРёСЏ РґР»СЏ Р·Р°РєСЂРµРїР»РµРЅРёСЏ."
+        "Разбери пояснения к ошибкам и пройди тест еще раз в режиме обучения для закрепления."
     )
 
     return recommendations
@@ -504,7 +504,7 @@ def _build_attempt_questions_review(cursor, question_ids: List[int], answer_map:
                 "category": question["category"],
                 "image_url": question.get("image_url"),
                 "selected_answer_id": selected_answer_id,
-                "selected_answer_text": selected_answer["answer_text"] if selected_answer else "РќРµ РІС‹Р±СЂР°РЅ",
+                "selected_answer_text": selected_answer["answer_text"] if selected_answer else "Не выбран",
                 "correct_answer_id": correct_answer["id"] if correct_answer else None,
                 "correct_answer_text": correct_answer["answer_text"] if correct_answer else "",
                 "is_correct": bool(selected_answer and selected_answer.get("is_correct")),
@@ -673,7 +673,7 @@ _initialize_admin_schema()
 @router.post("/admin/login")
 async def admin_login(payload: AdminLoginRequest):
     if payload.email != ADMIN_EMAIL or payload.password != ADMIN_PASSWORD:
-        raise HTTPException(status_code=401, detail="РќРµРІРµСЂРЅС‹Р№ Р»РѕРіРёРЅ РёР»Рё РїР°СЂРѕР»СЊ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂР°")
+        raise HTTPException(status_code=401, detail="Неверный логин или пароль администратора")
 
     return {"role": "admin", "email": ADMIN_EMAIL, "token": ADMIN_TOKEN}
 
@@ -1812,7 +1812,7 @@ async def submit_assigned_test(assignment_id: int, payload: AssignedTestSubmissi
         answer_rows = cur.fetchall()
 
         selected_answer_id = answer_map.get(question_id)
-        selected_answer_text = "РќРµ РІС‹Р±СЂР°РЅ"
+        selected_answer_text = "Не выбран"
         selected_correct = False
         correct_answer_text = ""
         explanation = ""
